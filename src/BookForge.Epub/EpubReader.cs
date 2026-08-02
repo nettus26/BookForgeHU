@@ -12,14 +12,12 @@ public class EpubReader : IEpubReader
         using var package = new EpubPackage(filePath);
         using var archive = package.Open();
 
-        var containerEntry = archive.GetEntry("META-INF/container.xml");
+        var contentReader = new EpubContentReader();
 
-        if (containerEntry == null)
-            throw new Exception("Nem található container.xml");
-
-        using var containerReader = new StreamReader(containerEntry.Open());
-
-        var containerXml = containerReader.ReadToEnd();
+        // container.xml
+        var containerXml = contentReader.ReadEntry(
+            archive,
+            "META-INF/container.xml");
 
         var containerParser = new ContainerParser();
 
@@ -28,19 +26,62 @@ public class EpubReader : IEpubReader
         if (contentPath == null)
             throw new Exception("Nem található content.opf");
 
-        var contentEntry = archive.GetEntry(contentPath);
 
-        if (contentEntry == null)
-            throw new Exception("Nem található OPF fájl");
-
-        using var contentReader = new StreamReader(contentEntry.Open());
-
-        var contentXml = contentReader.ReadToEnd();
+        // content.opf
+        var contentXml = contentReader.ReadEntry(
+            archive,
+            contentPath);
 
         var contentParser = new ContentParser();
 
         var book = contentParser.Parse(contentXml);
 
+
+        // manifest
+        var manifestParser = new ManifestParser();
+
+        var manifest = manifestParser.Parse(contentXml);
+
+
+        // spine
+        var spineParser = new SpineParser();
+
+        var spine = spineParser.Parse(contentXml);
+
+
+        // fejezetek betöltése
+        var chapterLoader = new ChapterLoader();
+
+        int order = 1;
+
+        foreach (var id in spine)
+        {
+            if (!manifest.ContainsKey(id))
+                continue;
+
+            var chapterPath = manifest[id];
+
+            var chapterEntry = archive.GetEntry(
+                chapterPath);
+
+            if (chapterEntry == null)
+                continue;
+
+            using var reader =
+                new StreamReader(chapterEntry.Open());
+
+            var html = reader.ReadToEnd();
+
+            var chapter = chapterLoader.Load(
+                $"Chapter {order}",
+                html,
+                order);
+
+            book.Chapters.Add(chapter);
+
+            order++;
+        }
+
         return book;
     }
-}
+} 
