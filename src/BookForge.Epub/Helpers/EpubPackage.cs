@@ -2,9 +2,11 @@ using System.IO.Compression;
 
 namespace BookForge.Epub.Helpers;
 
-public class EpubPackage
+public class EpubPackage : IDisposable
 {
     public string FilePath { get; }
+
+    private ZipArchive? archive;
 
     public EpubPackage(string filePath)
     {
@@ -13,6 +15,12 @@ public class EpubPackage
 
     public ZipArchive Open()
     {
-        return ZipFile.OpenRead(FilePath);
+        archive = ZipFile.OpenRead(FilePath);
+        return archive;
+    }
+
+    public void Dispose()
+    {
+        archive?.Dispose();
     }
 }
