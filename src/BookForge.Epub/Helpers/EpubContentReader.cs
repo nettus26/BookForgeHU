@@ -6,7 +6,8 @@ public class EpubContentReader
 {
     public string ReadEntry(ZipArchive archive, string path)
     {
-        var entry = archive.GetEntry(path);
+       var entry = archive.GetEntry(path) 
+            ?? archive.GetEntry(path.Replace("/", "\\"));
 
         if (entry == null)
             throw new Exception($"Nem található fájl: {path}");

@@ -7,6 +7,9 @@ public class ChapterLoader
 {
     public Chapter Load(string title, string htmlContent, int order)
     {
+        Console.WriteLine("BETÖLTÖTT HTML:");
+        Console.WriteLine(htmlContent);
+
         var cleanText = RemoveHtml(htmlContent);
 
         return new Chapter
@@ -20,6 +23,6 @@ public class ChapterLoader
     private string RemoveHtml(string html)
     {
         return Regex.Replace(html, "<.*?>", string.Empty)
-                     .Trim();
+                    .Trim();
     }
 }
