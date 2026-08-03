@@ -1,31 +1,31 @@
-﻿
-using BookForge.Epub;
-using BookForge.Services;
+﻿using BookForge.Services;
 
-Console.WriteLine("BookForge EPUB teszt");
+Console.WriteLine("BookForge Import teszt");
 
-var reader = new EpubReader();
+var importer = new ImportService();
 
-var book = reader.Load(@"C:\Users\missn\BookForgeHU\tests\TestBook.epub");
+var book = importer.ImportEpub(
+    @"C:\Users\missn\BookForgeHU\tests\TestBook.epub");
+
 
 Console.WriteLine($"Cím: {book.Title}");
 Console.WriteLine($"Szerző: {book.Author}");
 Console.WriteLine($"Fejezetek száma: {book.Chapters.Count}");
 
+
 foreach (var chapter in book.Chapters)
 {
     Console.WriteLine($"- {chapter.Title}");
+    Console.WriteLine($"  Szavak: {chapter.WordCount}");
     Console.WriteLine($"  Tartalom: {chapter.Content}");
 }
 
 
-// Könyvtár teszt
+// Könyvtár ellenőrzés
 Console.WriteLine();
-Console.WriteLine("Könyvtár teszt");
+Console.WriteLine("Könyvtár ellenőrzés");
 
 var library = new LibraryService();
-
-library.AddBook(book);
 
 var books = library.GetBooks();
 
