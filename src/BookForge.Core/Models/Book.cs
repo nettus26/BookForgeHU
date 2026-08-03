@@ -11,7 +11,23 @@ public class Book
 
     public string Description { get; set; } = string.Empty;
 
+
+    // Könyv adatok
+    public string Language { get; set; } = "hu";
+
+    public string FilePath { get; set; } = string.Empty;
+
+    public string CoverImage { get; set; } = string.Empty;
+
+    public string ISBN { get; set; } = string.Empty;
+
+
+    // Rendszer adatok
     public DateTime CreatedDate { get; set; } = DateTime.Now;
 
+    public DateTime? LastOpened { get; set; }
+
+
+    // Fejezetek
     public List<Chapter> Chapters { get; set; } = new();
 }
