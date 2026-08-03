@@ -61,8 +61,8 @@ public class EpubReader : IEpubReader
 
             var chapterPath = manifest[id];
 
-            var chapterEntry = archive.GetEntry(
-                chapterPath);
+          var chapterEntry = archive.GetEntry(chapterPath)
+    ?? archive.GetEntry(chapterPath.Replace("/", "\\"));
 
             if (chapterEntry == null)
                 continue;
@@ -71,6 +71,10 @@ public class EpubReader : IEpubReader
                 new StreamReader(chapterEntry.Open());
 
             var html = reader.ReadToEnd();
+          Console.WriteLine("FEJEZET FÁJL:");
+          Console.WriteLine(chapterPath);
+          Console.WriteLine("TARTALOM HOSSZA:");
+          Console.WriteLine(html.Length);
 
             var chapter = chapterLoader.Load(
                 $"Chapter {order}",
