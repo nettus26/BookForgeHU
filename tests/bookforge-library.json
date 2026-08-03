@@ -1,0 +1,37 @@
+[
+  {
+    "Title": "BookForge tesztk\u00F6nyv",
+    "Author": "BookForge",
+    "Description": "Nyelv: hu",
+    "Language": "hu",
+    "FilePath": "C:\\Users\\missn\\BookForgeHU\\tests\\TestBook\\TestBook.epub",
+    "CoverImage": "",
+    "ISBN": "",
+    "CreatedDate": "2026-08-03T12:18:50.6448834+02:00",
+    "LastOpened": null,
+    "Chapters": [
+      {
+        "Title": "Chapter 1",
+        "Order": 1,
+        "FilePath": "",
+        "Href": "",
+        "Content": "Els\u0151 fejezet Ez a BookForge els\u0151 teszt fejezete.",
+        "WordCount": 8,
+        "IsRead": false,
+        "CreatedDate": "2026-08-03T12:18:50.6528261+02:00",
+        "LastOpened": null
+      },
+      {
+        "Title": "Chapter 2",
+        "Order": 2,
+        "FilePath": "",
+        "Href": "",
+        "Content": "M\u00E1sodik fejezet A saj\u00E1t EPUB olvas\u00F3nk m\u0171k\u00F6d\u00E9s\u00E9t tesztelj\u00FCk.",
+        "WordCount": 8,
+        "IsRead": false,
+        "CreatedDate": "2026-08-03T12:18:50.6531822+02:00",
+        "LastOpened": null
+      }
+    ]
+  }
+]

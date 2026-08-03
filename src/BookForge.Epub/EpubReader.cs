@@ -15,43 +15,199 @@ public class EpubReader : IEpubReader
         var contentReader = new EpubContentReader();
 
 
-        // container.xml
         var containerXml = contentReader.ReadEntry(
             archive,
             "META-INF/container.xml");
+
 
         var containerParser = new ContainerParser();
 
         var contentPath = containerParser.FindContentPath(containerXml);
 
+
         if (contentPath == null)
             throw new Exception("Nem található content.opf");
 
 
-        // content.opf
+
         var contentXml = contentReader.ReadEntry(
             archive,
             contentPath);
+
 
         var contentParser = new ContentParser();
 
         var book = contentParser.Parse(contentXml);
 
 
-        // manifest
+
+        // ============================
+        // BORÍTÓ KERESÉSE
+        // ============================
+
+        string? coverPath = null;
+
+
+        // Új EPUB szabvány:
+        // properties="cover-image"
+
+        var coverIdMatch =
+            System.Text.RegularExpressions.Regex.Match(
+                contentXml,
+                @"<item[^>]+properties\s*=\s*[""']cover-image[""'][^>]+href\s*=\s*[""']([^""']+)[""']",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+
+        if (coverIdMatch.Success)
+        {
+            coverPath = coverIdMatch.Groups[1].Value;
+        }
+
+
+
+        // Régi EPUB szabvány:
+        // <meta name="cover" content="cover-id">
+
+        if (coverPath == null)
+        {
+            var oldCoverMatch =
+                System.Text.RegularExpressions.Regex.Match(
+                    contentXml,
+                    @"<meta[^>]+name\s*=\s*[""']cover[""'][^>]+content\s*=\s*[""']([^""']+)[""']",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+
+            if (oldCoverMatch.Success)
+            {
+                var coverId = oldCoverMatch.Groups[1].Value;
+
+
+                var manifestMatch =
+                    System.Text.RegularExpressions.Regex.Match(
+                        contentXml,
+                        $@"<item[^>]+id\s*=\s*[""']{coverId}[""'][^>]+href\s*=\s*[""']([^""']+)[""']",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+
+                if (manifestMatch.Success)
+                {
+                    coverPath = manifestMatch.Groups[1].Value;
+                }
+            }
+        }
+
+
+
+        // Utolsó próbálkozás:
+        // fájlnév alapján
+
+        if (coverPath == null)
+        {
+            var fileCover =
+                archive.Entries.FirstOrDefault(e =>
+                    e.FullName.Contains(
+                        "cover",
+                        StringComparison.OrdinalIgnoreCase)
+                    &&
+                    (
+                        e.FullName.EndsWith(".jpg",
+                            StringComparison.OrdinalIgnoreCase)
+                        ||
+                        e.FullName.EndsWith(".jpeg",
+                            StringComparison.OrdinalIgnoreCase)
+                        ||
+                        e.FullName.EndsWith(".png",
+                            StringComparison.OrdinalIgnoreCase)
+                    ));
+
+
+            if (fileCover != null)
+            {
+                coverPath = fileCover.FullName;
+            }
+        }
+
+
+
+        if (coverPath != null)
+        {
+            var coverEntry =
+                archive.Entries.FirstOrDefault(e =>
+                    e.FullName.Replace("\\", "/")
+                    .Equals(
+                        coverPath.Replace("\\", "/"),
+                        StringComparison.OrdinalIgnoreCase));
+
+
+            if (coverEntry != null)
+            {
+                try
+                {
+                    var coverFolder =
+                        Path.Combine(
+                            Environment.GetFolderPath(
+                                Environment.SpecialFolder.ApplicationData),
+                            "BookForge",
+                            "Covers");
+
+
+                    Directory.CreateDirectory(coverFolder);
+
+
+                    var extension =
+                        Path.GetExtension(coverEntry.FullName);
+
+
+                    var savedCover =
+                        Path.Combine(
+                            coverFolder,
+                            $"{Guid.NewGuid()}{extension}");
+
+
+                    using var source = coverEntry.Open();
+                    using var target = File.Create(savedCover);
+
+
+                    source.CopyTo(target);
+
+
+                    book.CoverImage = savedCover;
+                }
+                catch
+                {
+                    book.CoverImage = string.Empty;
+                }
+            }
+        }
+
+
+
+        // ============================
+        // MANIFEST
+        // ============================
+
         var manifestParser = new ManifestParser();
 
         var manifest = manifestParser.Parse(contentXml);
 
 
-        // spine
+
+        // ============================
+        // SPINE
+        // ============================
+
         var spineParser = new SpineParser();
 
         var spine = spineParser.Parse(contentXml);
 
 
-        // Tartalomjegyzék
+
+        // ============================
+        // TARTALOMJEGYZÉK
+        // ============================
+
         Dictionary<string, string> toc = new();
+
 
         var navEntry = archive.Entries
             .FirstOrDefault(e =>
@@ -59,6 +215,7 @@ public class EpubReader : IEpubReader
                 .Equals(
                     "Text/nav.xhtml",
                     StringComparison.OrdinalIgnoreCase));
+
 
         if (navEntry != null)
         {
@@ -72,10 +229,15 @@ public class EpubReader : IEpubReader
         }
 
 
-        // Fejezetek
+
+        // ============================
+        // FEJEZETEK
+        // ============================
+
         var chapterLoader = new ChapterLoader();
 
         int order = 1;
+
 
         foreach (var id in spine)
         {
@@ -98,8 +260,10 @@ public class EpubReader : IEpubReader
                 continue;
 
 
+
             using var reader =
                 new StreamReader(chapterEntry.Open());
+
 
             var html = reader.ReadToEnd();
 
@@ -107,7 +271,6 @@ public class EpubReader : IEpubReader
             var title = $"Chapter {order}";
 
 
-            // TOC cím keresése többféle útvonallal
             if (toc.ContainsKey(chapterPath))
             {
                 title = toc[chapterPath];
@@ -116,11 +279,13 @@ public class EpubReader : IEpubReader
             {
                 var shortPath = chapterPath.Replace("Text/", "");
 
+
                 if (toc.ContainsKey(shortPath))
                 {
                     title = toc[shortPath];
                 }
             }
+
 
 
             var chapter = chapterLoader.Load(
@@ -133,6 +298,7 @@ public class EpubReader : IEpubReader
 
             order++;
         }
+
 
 
         return book;
