@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BookForge.Core\BookForge.Core.csproj" />
+    <ProjectReference Include="..\BookForge.Epub\BookForge.Epub.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
