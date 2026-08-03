@@ -14,6 +14,7 @@ public class EpubReader : IEpubReader
 
         var contentReader = new EpubContentReader();
 
+
         // container.xml
         var containerXml = contentReader.ReadEntry(
             archive,
@@ -59,33 +60,45 @@ public class EpubReader : IEpubReader
             if (!manifest.ContainsKey(id))
                 continue;
 
+
             var chapterPath = manifest[id];
 
-          var chapterEntry = archive.GetEntry(chapterPath)
-    ?? archive.GetEntry(chapterPath.Replace("/", "\\"));
+
+            var chapterEntry = archive.Entries
+                .FirstOrDefault(e =>
+                    e.FullName.Replace("\\", "/")
+                    .Equals(
+                        chapterPath,
+                        StringComparison.OrdinalIgnoreCase));
+
 
             if (chapterEntry == null)
+            {
+                Console.WriteLine("Nem található:");
+                Console.WriteLine(chapterPath);
                 continue;
+            }
+
 
             using var reader =
                 new StreamReader(chapterEntry.Open());
 
+
             var html = reader.ReadToEnd();
-          Console.WriteLine("FEJEZET FÁJL:");
-          Console.WriteLine(chapterPath);
-          Console.WriteLine("TARTALOM HOSSZA:");
-          Console.WriteLine(html.Length);
+
 
             var chapter = chapterLoader.Load(
                 $"Chapter {order}",
                 html,
                 order);
 
+
             book.Chapters.Add(chapter);
 
             order++;
         }
 
+
         return book;
     }
-} 
+}

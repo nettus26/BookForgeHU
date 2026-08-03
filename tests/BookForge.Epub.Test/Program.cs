@@ -1,10 +1,12 @@
-﻿using BookForge.Epub;
+﻿
+using BookForge.Epub;
 
 Console.WriteLine("BookForge EPUB teszt");
 
 var reader = new EpubReader();
 
-var book = reader.Load(@"C:\Users\missn\BookForgeHU\tests\TestBook\TestBook.epub");
+var book = reader.Load(@"C:\Users\missn\BookForgeHU\tests\TestBook.epub");
+
 Console.WriteLine($"Cím: {book.Title}");
 Console.WriteLine($"Szerző: {book.Author}");
 Console.WriteLine($"Fejezetek száma: {book.Chapters.Count}");
