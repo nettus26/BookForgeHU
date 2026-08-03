@@ -1,4 +1,4 @@
-using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace BookForge.Epub.Parsers;
 
@@ -8,17 +8,15 @@ public class TocParser
     {
         var result = new Dictionary<string, string>();
 
-        var document = XDocument.Parse(xhtml);
+        var matches = Regex.Matches(
+            xhtml,
+            @"href=""([^""]+)"".*?>(.*?)</a>",
+            RegexOptions.Singleline);
 
-        XNamespace xhtmlNs = "http://www.w3.org/1999/xhtml";
-
-        var links = document
-            .Descendants(xhtmlNs + "a");
-
-        foreach (var link in links)
+        foreach (Match match in matches)
         {
-            var href = link.Attribute("href")?.Value;
-            var title = link.Value.Trim();
+            var href = match.Groups[1].Value;
+            var title = match.Groups[2].Value.Trim();
 
             if (!string.IsNullOrEmpty(href) &&
                 !string.IsNullOrEmpty(title))

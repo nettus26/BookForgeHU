@@ -50,7 +50,29 @@ public class EpubReader : IEpubReader
         var spine = spineParser.Parse(contentXml);
 
 
-        // fejezetek betöltése
+        // Tartalomjegyzék
+        Dictionary<string, string> toc = new();
+
+        var navEntry = archive.Entries
+            .FirstOrDefault(e =>
+                e.FullName.Replace("\\", "/")
+                .Equals(
+                    "Text/nav.xhtml",
+                    StringComparison.OrdinalIgnoreCase));
+
+        if (navEntry != null)
+        {
+            using var navReader = new StreamReader(navEntry.Open());
+
+            var navContent = navReader.ReadToEnd();
+
+            var tocParser = new TocParser();
+
+            toc = tocParser.Parse(navContent);
+        }
+
+
+        // Fejezetek
         var chapterLoader = new ChapterLoader();
 
         int order = 1;
@@ -73,22 +95,36 @@ public class EpubReader : IEpubReader
 
 
             if (chapterEntry == null)
-            {
-                Console.WriteLine("Nem található:");
-                Console.WriteLine(chapterPath);
                 continue;
-            }
 
 
             using var reader =
                 new StreamReader(chapterEntry.Open());
 
-
             var html = reader.ReadToEnd();
 
 
+            var title = $"Chapter {order}";
+
+
+            // TOC cím keresése többféle útvonallal
+            if (toc.ContainsKey(chapterPath))
+            {
+                title = toc[chapterPath];
+            }
+            else
+            {
+                var shortPath = chapterPath.Replace("Text/", "");
+
+                if (toc.ContainsKey(shortPath))
+                {
+                    title = toc[shortPath];
+                }
+            }
+
+
             var chapter = chapterLoader.Load(
-                $"Chapter {order}",
+                title,
                 html,
                 order);
 
