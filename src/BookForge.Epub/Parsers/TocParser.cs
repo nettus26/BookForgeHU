@@ -24,7 +24,11 @@ public class TocParser
                 result[href] = title;
             }
         }
-
+        foreach (var item in result)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"{item.Key} -> {item.Value}");
+        }
         return result;
     }
 }

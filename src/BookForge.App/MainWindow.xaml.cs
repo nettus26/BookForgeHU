@@ -148,6 +148,7 @@ private void BookList_SelectionChanged(
         object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
     {
+        System.Diagnostics.Debug.WriteLine("BOOKLIST ESEMÉNY FUT");
         if (BookList.SelectedItem is Book book)
         {
             BookTitleText.Text = book.Title;
@@ -168,19 +169,13 @@ private void BookList_SelectionChanged(
 
             foreach (var chapter in book.Chapters)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"LISTÁBA TESZEM: {chapter.Title}");
+
                 ChapterList.Items.Add(chapter);
             }
-
-
-            ContentText.Text =
-                "Válassz ki egy fejezetet";
-
-
-            ChapterTitleText.Text = "";
         }
     }
-
-
 
     private void LoadCover(Book book)
     {

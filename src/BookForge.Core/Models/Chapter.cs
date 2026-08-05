@@ -31,4 +31,8 @@ public class Chapter
     public DateTime CreatedDate { get; set; } = DateTime.Now;
 
     public DateTime? LastOpened { get; set; }
+    public override string ToString()
+    {
+        return Title;
+    }
 }

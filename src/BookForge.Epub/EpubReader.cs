@@ -1,8 +1,8 @@
+using System.IO;
 using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
 using BookForge.Epub.Interfaces;
 using BookForge.Epub.Parsers;
-
 namespace BookForge.Epub;
 
 public class EpubReader : IEpubReader
@@ -246,8 +246,11 @@ public class EpubReader : IEpubReader
 
 
             var chapterPath = manifest[id];
+            System.Diagnostics.Debug.WriteLine(
+    $"CHAPTER PATH: {chapterPath}");
 
-
+            System.Diagnostics.Debug.WriteLine(
+    $"TOC KEYS: {string.Join(", ", toc.Keys)}");
             var chapterEntry = archive.Entries
                 .FirstOrDefault(e =>
                     e.FullName.Replace("\\", "/")
@@ -267,8 +270,10 @@ public class EpubReader : IEpubReader
 
             var html = reader.ReadToEnd();
 
-
+            System.Diagnostics.Debug.WriteLine("EPUB READER ELINDULT");
             var title = $"Chapter {order}";
+            System.Diagnostics.Debug.WriteLine(
+    $"TOC COUNT: {toc.Count}");
 
 
             if (toc.ContainsKey(chapterPath))
@@ -279,14 +284,24 @@ public class EpubReader : IEpubReader
             {
                 var shortPath = chapterPath.Replace("Text/", "");
 
-
                 if (toc.ContainsKey(shortPath))
                 {
                     title = toc[shortPath];
                 }
+                else
+                {
+                    var match = toc
+                        .FirstOrDefault(x =>
+                            chapterPath.Contains(
+                                Path.GetFileNameWithoutExtension(x.Key),
+                                StringComparison.OrdinalIgnoreCase));
+
+                    if (!string.IsNullOrEmpty(match.Value))
+                    {
+                        title = match.Value;
+                    }
+                }
             }
-
-
 
             var chapter = chapterLoader.Load(
                 title,
@@ -295,7 +310,8 @@ public class EpubReader : IEpubReader
 
 
             book.Chapters.Add(chapter);
-
+            System.Diagnostics.Debug.WriteLine(
+    $"ADDING TO BOOK: {chapter.Title}");
             order++;
         }
 
