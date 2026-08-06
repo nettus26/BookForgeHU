@@ -1,3 +1,4 @@
+using System;
 using System.Text.RegularExpressions;
 using BookForge.Core.Models;
 
@@ -11,7 +12,9 @@ public class ChapterLoader
 
         return new Chapter
         {
-            Title = title,
+            Title = title.StartsWith("Chapter ")
+                ? FindChapterTitle(htmlContent, title)
+                : title,
 
             Order = order,
 
@@ -24,7 +27,6 @@ public class ChapterLoader
             CreatedDate = DateTime.Now
         };
     }
-
 
     private string RemoveHtml(string html)
     {
@@ -41,7 +43,6 @@ public class ChapterLoader
         return text.Trim();
     }
 
-
     private int CountWords(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -52,5 +53,26 @@ public class ChapterLoader
                 ' ',
                 StringSplitOptions.RemoveEmptyEntries)
             .Length;
+    }
+
+    private string FindChapterTitle(string html, string fallbackTitle)
+    {
+        var match = Regex.Match(
+            html,
+            @"<h[1-3][^>]*>(.*?)</h[1-3]>",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+        if (match.Success)
+        {
+            var title = Regex.Replace(
+                match.Groups[1].Value,
+                "<.*?>",
+                string.Empty).Trim();
+
+            if (!string.IsNullOrWhiteSpace(title))
+                return title;
+        }
+
+        return fallbackTitle;
     }
 }
