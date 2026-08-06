@@ -1,9 +1,8 @@
+using System.IO;
 using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
 using BookForge.Epub.Interfaces;
 using BookForge.Epub.Parsers;
-using System.IO;
-using System.IO.Compression;
 namespace BookForge.Epub;
 
 public class EpubReader : IEpubReader
@@ -210,16 +209,13 @@ public class EpubReader : IEpubReader
         Dictionary<string, string> toc = new();
 
 
-        // ============================
-        // NAV KERESÉSE (EPUB3)
-        // ============================
-
         var navEntry = archive.Entries
             .FirstOrDefault(e =>
-                Path.GetFileName(e.FullName)
-                    .Equals(
-                        "nav.xhtml",
-                        StringComparison.OrdinalIgnoreCase));
+                e.FullName.Replace("\\", "/")
+                .Equals(
+                    "Text/nav.xhtml",
+                    StringComparison.OrdinalIgnoreCase));
+
 
         if (navEntry != null)
         {
@@ -231,30 +227,7 @@ public class EpubReader : IEpubReader
 
             toc = tocParser.Parse(navContent);
         }
-        else
-        {
-            // ============================
-            // TOC.NCX KERESÉSE (EPUB2)
-            // ============================
 
-            var ncxEntry = archive.Entries
-                .FirstOrDefault(e =>
-                    Path.GetFileName(e.FullName)
-                        .Equals(
-                            "toc.ncx",
-                            StringComparison.OrdinalIgnoreCase));
-
-            if (ncxEntry != null)
-            {
-                using var ncxReader = new StreamReader(ncxEntry.Open());
-
-                var ncxContent = ncxReader.ReadToEnd();
-
-                var ncxParser = new NcxParser();
-
-                toc = ncxParser.Parse(ncxContent);
-            }
-        }
 
 
         // ============================
@@ -298,7 +271,7 @@ public class EpubReader : IEpubReader
             var html = reader.ReadToEnd();
 
             System.Diagnostics.Debug.WriteLine("EPUB READER ELINDULT");
-            string? title = null;
+            var title = $"Chapter {order}";
             System.Diagnostics.Debug.WriteLine(
     $"TOC COUNT: {toc.Count}");
 
@@ -328,10 +301,6 @@ public class EpubReader : IEpubReader
                         title = match.Value;
                     }
                 }
-                if (string.IsNullOrWhiteSpace(title))
-                {
-                    title = $"Chapter {order}";
-                }
             }
 
             var chapter = chapterLoader.Load(
@@ -350,39 +319,4 @@ public class EpubReader : IEpubReader
 
         return book;
     }
-}private Dictionary<string, string> LoadToc(ZipArchive archive)
-    {
-        // EPUB3
-        var navEntry = archive.Entries
-            .FirstOrDefault(e =>
-                Path.GetFileName(e.FullName)
-                    .Equals("nav.xhtml",
-                        StringComparison.OrdinalIgnoreCase));
-
-        if (navEntry != null)
-        {
-            using var reader = new StreamReader(navEntry.Open());
-
-            var parser = new TocParser();
-
-            return parser.Parse(reader.ReadToEnd());
-        }
-
-        // EPUB2
-        var ncxEntry = archive.Entries
-            .FirstOrDefault(e =>
-                Path.GetFileName(e.FullName)
-                    .EndsWith(".ncx",
-                        StringComparison.OrdinalIgnoreCase));
-
-        if (ncxEntry != null)
-        {
-            using var reader = new StreamReader(ncxEntry.Open());
-
-            var parser = new NcxParser();
-
-            return parser.Parse(reader.ReadToEnd());
-        }
-
-        return new Dictionary<string, string>();
-    }
+}

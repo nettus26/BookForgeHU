@@ -1,7 +1,4 @@
 ﻿using System.Xml.Linq;
-
-using System.Xml.Linq;
-
 namespace BookForge.Epub;
 
 public class NcxParser
