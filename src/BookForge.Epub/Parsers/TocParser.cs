@@ -16,7 +16,21 @@ public class TocParser
         foreach (Match match in matches)
         {
             var href = match.Groups[1].Value;
-            var title = match.Groups[2].Value.Trim();
+            // Anchor (#) eltávolítása
+            var index = href.IndexOf('#');
+
+            if (index >= 0)
+            {
+                href = href[..index];
+            }
+
+            // Perjelek egységesítése
+            href = href.Replace("\\", "/");
+            href = href.TrimStart('/');
+            var title = Regex.Replace(
+         match.Groups[2].Value,
+         "<.*?>",
+         string.Empty).Trim();
 
             if (!string.IsNullOrEmpty(href) &&
                 !string.IsNullOrEmpty(title))

@@ -227,7 +227,8 @@ public class EpubReader : IEpubReader
 
             toc = tocParser.Parse(navContent);
         }
-
+       
+       
 
 
         // ============================
@@ -246,6 +247,7 @@ public class EpubReader : IEpubReader
 
 
             var chapterPath = manifest[id];
+            System.Diagnostics.Debug.WriteLine($"SPINE: {chapterPath}");
             System.Diagnostics.Debug.WriteLine(
     $"CHAPTER PATH: {chapterPath}");
 
