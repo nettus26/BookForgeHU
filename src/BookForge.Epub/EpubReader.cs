@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
 using BookForge.Epub.Interfaces;
@@ -236,7 +237,7 @@ public class EpubReader : IEpubReader
         // ============================
 
         var chapterLoader = new ChapterLoader();
-
+        var titleResolver = new ChapterTitleResolver();
         int order = 1;
 
 
@@ -304,7 +305,10 @@ public class EpubReader : IEpubReader
                     }
                 }
             }
-
+            System.Diagnostics.Debugger.Break();
+            title = titleResolver.Resolve(html, title);
+            System.Diagnostics.Debug.WriteLine(
+    $"TITLE BEFORE LOAD = {title}");
             var chapter = chapterLoader.Load(
                 title,
                 html,
