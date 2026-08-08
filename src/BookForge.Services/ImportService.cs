@@ -1,17 +1,18 @@
 using BookForge.Core.Models;
 using BookForge.Epub;
+using BookForge.Epub.Interfaces;
 
 namespace BookForge.Services;
 
 public class ImportService
 {
-    private readonly EpubReader reader;
+    private readonly IEpubReader reader;
     private readonly LibraryService library;
 
 
     public ImportService()
     {
-        reader = new EpubReader();
+     reader = new EpubReaderV2();
         library = new LibraryService();
     }
 
