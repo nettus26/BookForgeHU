@@ -67,6 +67,7 @@
                         SelectionChanged="BookList_SelectionChanged">
 
                         <ListView.ItemTemplate>
+
                             <DataTemplate>
 
                                 <StackPanel Margin="5">
@@ -170,11 +171,9 @@
                 Grid.Column="2"
                 Margin="0,0,10,0">
 
-
                 <ListView
                     x:Name="ChapterList"
                     SelectionChanged="ChapterList_SelectionChanged">
-
 
                     <ListView.ItemTemplate>
 
@@ -189,12 +188,9 @@
 
                     </ListView.ItemTemplate>
 
-
                 </ListView>
 
-
             </GroupBox>
-
 
 
 
@@ -204,11 +200,9 @@
                 Header="Olvasó"
                 Grid.Column="3">
 
-
                 <ScrollViewer>
 
                     <StackPanel Margin="15">
-
 
                         <TextBlock
                             x:Name="ChapterTitleText"
@@ -217,27 +211,23 @@
                             Margin="0,0,0,15"/>
 
 
-
                         <TextBlock
                             x:Name="ContentText"
                             Text="Válassz ki egy fejezetet"
                             TextWrapping="Wrap"
                             FontSize="16"/>
-
-
+                        <Grid
+    x:Name="ReaderHost"
+    MinHeight="500"/>
                     </StackPanel>
 
-
                 </ScrollViewer>
-
 
             </GroupBox>
 
 
         </Grid>
 
-
     </Grid>
 
 </Window>
-               

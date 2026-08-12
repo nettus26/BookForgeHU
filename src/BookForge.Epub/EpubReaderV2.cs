@@ -1,4 +1,9 @@
-﻿using System.IO.Compression;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
 using System.Xml.Linq;
 using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
@@ -7,71 +12,95 @@ using BookForge.Epub.Parsers;
 
 namespace BookForge.Epub;
 
-/// <summary>
-/// Az új, moduláris EPUB olvasó.
-/// A régi EpubReader osztályt nem módosítja és nem helyettesíti automatikusan.
-/// </summary>
 public class EpubReaderV2 : IEpubReader
 {
     public Book Load(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
-            throw new ArgumentException("Az EPUB fájl elérési útja üres.", nameof(filePath));
+            throw new ArgumentException(
+                "Az EPUB fájl elérési útja üres.",
+                nameof(filePath));
 
         if (!File.Exists(filePath))
-            throw new FileNotFoundException("Az EPUB fájl nem található.", filePath);
+            throw new FileNotFoundException(
+                "Az EPUB fájl nem található.",
+                filePath);
 
         using var package = new EpubPackage(filePath);
         using var archive = package.Open();
 
         var contentReader = new EpubContentReader();
 
-        // 1. META-INF/container.xml
         var containerXml = contentReader.ReadEntry(
             archive,
             "META-INF/container.xml");
 
         var containerParser = new ContainerParser();
-        var contentPath = containerParser.FindContentPath(containerXml);
+
+        var contentPath =
+            containerParser.FindContentPath(containerXml);
 
         if (string.IsNullOrWhiteSpace(contentPath))
-            throw new InvalidDataException("Nem található content.opf az EPUB-ban.");
+            throw new InvalidDataException(
+                "Nem található content.opf az EPUB-ban.");
 
         contentPath = NormalizePath(contentPath);
 
-        // 2. content.opf -> alap könyvadatok
-        var contentXml = contentReader.ReadEntry(
-            archive,
-            contentPath);
+        var contentXml =
+            contentReader.ReadEntry(
+                archive,
+                contentPath);
 
         var contentParser = new ContentParser();
+
         var book = contentParser.Parse(contentXml);
 
         book.FilePath = filePath;
 
-        // 3. Manifest
+        // ============================
+        // MANIFEST
+        // ============================
+
         var manifestParser = new ManifestParser();
-        var manifest = manifestParser.Parse(contentXml);
 
-        // 4. Spine
+        var manifest =
+            manifestParser.Parse(contentXml);
+
+        // ============================
+        // SPINE
+        // ============================
+
         var spineParser = new SpineParser();
-        var spine = spineParser.Parse(contentXml);
 
-        // 5. Borító
-        book.CoverImage = SaveCover(
-            archive,
-            contentXml,
-            manifest,
-            contentPath);
+        var spine =
+            spineParser.Parse(contentXml);
 
-        // 6. TOC
-        var toc = LoadTableOfContents(
-            archive,
-            contentXml,
-            manifest,
-            contentPath);
+        // ============================
+        // BORÍTÓ
+        // ============================
 
-        // 7. Fejezetek
+        book.CoverImage =
+            SaveCover(
+                archive,
+                contentXml,
+                manifest,
+                contentPath);
+
+        // ============================
+        // TARTALOMJEGYZÉK
+        // ============================
+
+        var toc =
+            LoadTableOfContents(
+                archive,
+                contentXml,
+                manifest,
+                contentPath);
+
+        // ============================
+        // FEJEZETEK
+        // ============================
+
         LoadChapters(
             archive,
             book,
@@ -83,6 +112,7 @@ public class EpubReaderV2 : IEpubReader
         return book;
     }
 
+
     private static void LoadChapters(
         ZipArchive archive,
         Book book,
@@ -91,89 +121,175 @@ public class EpubReaderV2 : IEpubReader
         Dictionary<string, string> toc,
         string contentPath)
     {
-        var chapterLoader = new ChapterLoader();
-        var titleResolver = new ChapterTitleResolver();
+        var chapterLoader =
+            new ChapterLoader();
 
-        var contentDirectory = GetDirectory(contentPath);
+        var titleResolver =
+            new ChapterTitleResolver();
+
+        var contentDirectory =
+            GetDirectory(contentPath);
+
         var order = 1;
 
         foreach (var id in spine)
         {
-            if (!manifest.TryGetValue(id, out var href) ||
+            if (!manifest.TryGetValue(
+                id,
+                out var href)
+                ||
                 string.IsNullOrWhiteSpace(href))
             {
                 continue;
             }
 
-            var chapterPath = ResolvePath(contentDirectory, href);
-            var chapterEntry = FindEntry(archive, chapterPath);
+            var chapterPath =
+                ResolvePath(
+                    contentDirectory,
+                    href);
+
+            var chapterEntry =
+                FindEntry(
+                    archive,
+                    chapterPath);
 
             if (chapterEntry == null)
                 continue;
 
             string html;
 
-            using (var reader = new StreamReader(chapterEntry.Open()))
+            using (var reader =
+                   new StreamReader(
+                       chapterEntry.Open()))
             {
-                html = reader.ReadToEnd();
+                html =
+                    reader.ReadToEnd();
             }
 
-            var title = FindTocTitle(toc, chapterPath)
-                        ?? $"Chapter {order}";
+            // ============================
+            // DIAGNOSZTIKA
+            // ============================
 
-            title = titleResolver.Resolve(html, title);
+            Debug.WriteLine(
+                $"EPUB TESZT | Fejezet: {chapterPath}");
 
-            var chapter = chapterLoader.Load(
-                title,
-                html,
-                order);
+            Debug.WriteLine(
+                $"EPUB TESZT | HTML hossz: {html.Length}");
 
-            chapter.FilePath = chapterPath;
-            chapter.Href = href;
+            if (!string.IsNullOrWhiteSpace(html))
+            {
+                Debug.WriteLine(
+                    $"EPUB TESZT | HTML eleje: " +
+                    html[..Math.Min(200, html.Length)]);
+            }
+            else
+            {
+                Debug.WriteLine(
+                    "EPUB TESZT | A HTML ÜRES!");
+            }
 
-            book.Chapters.Add(chapter);
+            var title =
+                FindTocTitle(
+                    toc,
+                    chapterPath)
+                ?? $"Chapter {order}";
+
+            title =
+                titleResolver.Resolve(
+                    html,
+                    title);
+
+            var chapter =
+                chapterLoader.Load(
+                    title,
+                    html,
+                    order);
+
+            Debug.WriteLine(
+                $"EPUB TESZT | Chapter.HtmlContent hossz: " +
+                $"{chapter.HtmlContent?.Length ?? 0}");
+
+            chapter.FilePath =
+                chapterPath;
+
+            chapter.Href =
+                href;
+
+            book.Chapters.Add(
+                chapter);
+
             order++;
         }
     }
 
-    private static Dictionary<string, string> LoadTableOfContents(
-        ZipArchive archive,
-        string contentXml,
-        Dictionary<string, string> manifest,
-        string contentPath)
+
+    private static Dictionary<string, string>
+        LoadTableOfContents(
+            ZipArchive archive,
+            string contentXml,
+            Dictionary<string, string> manifest,
+            string contentPath)
     {
-        var result = new Dictionary<string, string>(
-            StringComparer.OrdinalIgnoreCase);
+        var result =
+            new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
 
-        var document = XDocument.Parse(contentXml);
-        XNamespace opf = "http://www.idpf.org/2007/opf";
+        var document =
+            XDocument.Parse(contentXml);
 
-        var contentDirectory = GetDirectory(contentPath);
+        XNamespace opf =
+            "http://www.idpf.org/2007/opf";
 
-        // EPUB 3: az item properties="nav" elem.
-        var navItem = document
-            .Descendants(opf + "item")
-            .FirstOrDefault(item =>
-                (item.Attribute("properties")?.Value ?? string.Empty)
-                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Any(p => p.Equals("nav", StringComparison.OrdinalIgnoreCase)));
+        var contentDirectory =
+            GetDirectory(contentPath);
+
+        // EPUB 3: nav
+
+        var navItem =
+            document
+                .Descendants(opf + "item")
+                .FirstOrDefault(item =>
+                    (item.Attribute("properties")?.Value
+                     ?? string.Empty)
+                    .Split(
+                        ' ',
+                        StringSplitOptions.RemoveEmptyEntries)
+                    .Any(p =>
+                        p.Equals(
+                            "nav",
+                            StringComparison.OrdinalIgnoreCase)));
 
         if (navItem != null)
         {
-            var navHref = navItem.Attribute("href")?.Value;
+            var navHref =
+                navItem.Attribute("href")?.Value;
 
             if (!string.IsNullOrWhiteSpace(navHref))
             {
-                var navPath = ResolvePath(contentDirectory, navHref);
-                var navEntry = FindEntry(archive, navPath);
+                var navPath =
+                    ResolvePath(
+                        contentDirectory,
+                        navHref);
+
+                var navEntry =
+                    FindEntry(
+                        archive,
+                        navPath);
 
                 if (navEntry != null)
                 {
-                    using var reader = new StreamReader(navEntry.Open());
-                    var navXhtml = reader.ReadToEnd();
+                    using var reader =
+                        new StreamReader(
+                            navEntry.Open());
 
-                    var parser = new TocParser();
-                    var parsed = parser.Parse(navXhtml);
+                    var navXhtml =
+                        reader.ReadToEnd();
+
+                    var parser =
+                        new TocParser();
+
+                    var parsed =
+                        parser.Parse(navXhtml);
 
                     AddNormalizedTocEntries(
                         result,
@@ -183,50 +299,73 @@ public class EpubReaderV2 : IEpubReader
             }
         }
 
-        // EPUB 2 fallback: NCX.
+        // EPUB 2: NCX
+
         if (result.Count == 0)
         {
             string? ncxHref = null;
 
-            var spineElement = document
-                .Descendants(opf + "spine")
-                .FirstOrDefault();
+            var spineElement =
+                document
+                    .Descendants(opf + "spine")
+                    .FirstOrDefault();
 
-            var tocId = spineElement?
-                .Attribute("toc")?
-                .Value;
+            var tocId =
+                spineElement?
+                    .Attribute("toc")?
+                    .Value;
 
-            if (!string.IsNullOrWhiteSpace(tocId) &&
-                manifest.TryGetValue(tocId, out var tocHref))
+            if (!string.IsNullOrWhiteSpace(tocId)
+                &&
+                manifest.TryGetValue(
+                    tocId,
+                    out var tocHref))
             {
                 ncxHref = tocHref;
             }
 
             if (string.IsNullOrWhiteSpace(ncxHref))
             {
-                var ncxItem = document
-                    .Descendants(opf + "item")
-                    .FirstOrDefault(item =>
-                        string.Equals(
-                            item.Attribute("media-type")?.Value,
-                            "application/x-dtbncx+xml",
-                            StringComparison.OrdinalIgnoreCase));
+                var ncxItem =
+                    document
+                        .Descendants(opf + "item")
+                        .FirstOrDefault(item =>
+                            string.Equals(
+                                item.Attribute(
+                                    "media-type")?.Value,
+                                "application/x-dtbncx+xml",
+                                StringComparison.OrdinalIgnoreCase));
 
-                ncxHref = ncxItem?.Attribute("href")?.Value;
+                ncxHref =
+                    ncxItem?.Attribute("href")?.Value;
             }
 
             if (!string.IsNullOrWhiteSpace(ncxHref))
             {
-                var ncxPath = ResolvePath(contentDirectory, ncxHref);
-                var ncxEntry = FindEntry(archive, ncxPath);
+                var ncxPath =
+                    ResolvePath(
+                        contentDirectory,
+                        ncxHref);
+
+                var ncxEntry =
+                    FindEntry(
+                        archive,
+                        ncxPath);
 
                 if (ncxEntry != null)
                 {
-                    using var reader = new StreamReader(ncxEntry.Open());
-                    var ncx = reader.ReadToEnd();
+                    using var reader =
+                        new StreamReader(
+                            ncxEntry.Open());
 
-                    var parser = new NcxParser();
-                    var parsed = parser.Parse(ncx);
+                    var ncx =
+                        reader.ReadToEnd();
+
+                    var parser =
+                        new NcxParser();
+
+                    var parsed =
+                        parser.Parse(ncx);
 
                     AddNormalizedTocEntries(
                         result,
@@ -239,44 +378,69 @@ public class EpubReaderV2 : IEpubReader
         return result;
     }
 
+
     private static string SaveCover(
         ZipArchive archive,
         string contentXml,
         Dictionary<string, string> manifest,
         string contentPath)
     {
-        var document = XDocument.Parse(contentXml);
-        XNamespace opf = "http://www.idpf.org/2007/opf";
+        var document =
+            XDocument.Parse(contentXml);
 
-        var contentDirectory = GetDirectory(contentPath);
+        XNamespace opf =
+            "http://www.idpf.org/2007/opf";
+
+        var contentDirectory =
+            GetDirectory(contentPath);
+
         string? coverHref = null;
 
-        // EPUB 3: properties="cover-image"
-        var coverItem = document
-            .Descendants(opf + "item")
-            .FirstOrDefault(item =>
-                (item.Attribute("properties")?.Value ?? string.Empty)
-                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                    .Any(p => p.Equals("cover-image", StringComparison.OrdinalIgnoreCase)));
+        // EPUB 3
+
+        var coverItem =
+            document
+                .Descendants(opf + "item")
+                .FirstOrDefault(item =>
+                    (item.Attribute("properties")?.Value
+                     ?? string.Empty)
+                    .Split(
+                        ' ',
+                        StringSplitOptions.RemoveEmptyEntries)
+                    .Any(p =>
+                        p.Equals(
+                            "cover-image",
+                            StringComparison.OrdinalIgnoreCase)));
 
         if (coverItem != null)
-            coverHref = coverItem.Attribute("href")?.Value;
+        {
+            coverHref =
+                coverItem.Attribute("href")?.Value;
+        }
 
-        // EPUB 2: <meta name="cover" content="cover-id">
+        // EPUB 2
+
         if (string.IsNullOrWhiteSpace(coverHref))
         {
-            var coverMeta = document
-                .Descendants(opf + "meta")
-                .FirstOrDefault(meta =>
-                    string.Equals(
-                        meta.Attribute("name")?.Value,
-                        "cover",
-                        StringComparison.OrdinalIgnoreCase));
+            var coverMeta =
+                document
+                    .Descendants(opf + "meta")
+                    .FirstOrDefault(meta =>
+                        string.Equals(
+                            meta.Attribute("name")?.Value,
+                            "cover",
+                            StringComparison.OrdinalIgnoreCase));
 
-            var coverId = coverMeta?.Attribute("content")?.Value;
+            var coverId =
+                coverMeta?
+                    .Attribute("content")?
+                    .Value;
 
-            if (!string.IsNullOrWhiteSpace(coverId) &&
-                manifest.TryGetValue(coverId, out var href))
+            if (!string.IsNullOrWhiteSpace(coverId)
+                &&
+                manifest.TryGetValue(
+                    coverId,
+                    out var href))
             {
                 coverHref = href;
             }
@@ -286,18 +450,27 @@ public class EpubReaderV2 : IEpubReader
 
         if (!string.IsNullOrWhiteSpace(coverHref))
         {
-            var coverPath = ResolvePath(contentDirectory, coverHref);
-            coverEntry = FindEntry(archive, coverPath);
+            var coverPath =
+                ResolvePath(
+                    contentDirectory,
+                    coverHref);
+
+            coverEntry =
+                FindEntry(
+                    archive,
+                    coverPath);
         }
 
-        // Utolsó fallback: fájlnév alapján.
         if (coverEntry == null)
         {
-            coverEntry = archive.Entries.FirstOrDefault(entry =>
-                entry.FullName.Contains(
-                    "cover",
-                    StringComparison.OrdinalIgnoreCase) &&
-                IsImage(entry.FullName));
+            coverEntry =
+                archive.Entries
+                    .FirstOrDefault(entry =>
+                        entry.FullName.Contains(
+                            "cover",
+                            StringComparison.OrdinalIgnoreCase)
+                        &&
+                        IsImage(entry.FullName));
         }
 
         if (coverEntry == null)
@@ -305,25 +478,33 @@ public class EpubReaderV2 : IEpubReader
 
         try
         {
-            var coverFolder = Path.Combine(
-                Environment.GetFolderPath(
-                    Environment.SpecialFolder.ApplicationData),
-                "BookForge",
-                "Covers");
+            var coverFolder =
+                Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.ApplicationData),
+                    "BookForge",
+                    "Covers");
 
-            Directory.CreateDirectory(coverFolder);
+            Directory.CreateDirectory(
+                coverFolder);
 
-            var extension = Path.GetExtension(coverEntry.FullName);
+            var extension =
+                Path.GetExtension(
+                    coverEntry.FullName);
 
             if (string.IsNullOrWhiteSpace(extension))
                 extension = ".img";
 
-            var savedCover = Path.Combine(
-                coverFolder,
-                $"{Guid.NewGuid()}{extension}");
+            var savedCover =
+                Path.Combine(
+                    coverFolder,
+                    $"{Guid.NewGuid()}{extension}");
 
-            using var source = coverEntry.Open();
-            using var target = File.Create(savedCover);
+            using var source =
+                coverEntry.Open();
+
+            using var target =
+                File.Create(savedCover);
 
             source.CopyTo(target);
 
@@ -335,6 +516,7 @@ public class EpubReaderV2 : IEpubReader
         }
     }
 
+
     private static void AddNormalizedTocEntries(
         Dictionary<string, string> target,
         Dictionary<string, string> parsed,
@@ -342,87 +524,120 @@ public class EpubReaderV2 : IEpubReader
     {
         foreach (var item in parsed)
         {
-            var path = ResolvePath(tocDirectory, item.Key);
-            target[path] = item.Value;
+            var path =
+                ResolvePath(
+                    tocDirectory,
+                    item.Key);
+
+            target[path] =
+                item.Value;
         }
     }
+
 
     private static string? FindTocTitle(
         Dictionary<string, string> toc,
         string chapterPath)
     {
-        if (toc.TryGetValue(chapterPath, out var exact))
+        if (toc.TryGetValue(
+            chapterPath,
+            out var exact))
+        {
             return exact;
+        }
 
-        var fileName = Path.GetFileName(chapterPath);
+        var fileName =
+            Path.GetFileName(
+                chapterPath);
 
         if (!string.IsNullOrWhiteSpace(fileName))
         {
-            var match = toc.FirstOrDefault(item =>
-                string.Equals(
-                    Path.GetFileName(item.Key),
-                    fileName,
-                    StringComparison.OrdinalIgnoreCase));
+            var match =
+                toc.FirstOrDefault(item =>
+                    string.Equals(
+                        Path.GetFileName(item.Key),
+                        fileName,
+                        StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrWhiteSpace(match.Value))
+            {
                 return match.Value;
+            }
         }
 
         return null;
     }
 
+
     private static ZipArchiveEntry? FindEntry(
         ZipArchive archive,
         string path)
     {
-        var normalized = NormalizePath(path);
+        var normalized =
+            NormalizePath(path);
 
-        return archive.Entries.FirstOrDefault(entry =>
-            NormalizePath(entry.FullName).Equals(
-                normalized,
-                StringComparison.OrdinalIgnoreCase));
+        return archive.Entries
+            .FirstOrDefault(entry =>
+                NormalizePath(entry.FullName)
+                    .Equals(
+                        normalized,
+                        StringComparison.OrdinalIgnoreCase));
     }
+
 
     private static string ResolvePath(
         string baseDirectory,
         string href)
     {
-        href = href
-            .Replace("\\", "/")
-            .Trim();
+        href =
+            href
+                .Replace("\\", "/")
+                .Trim();
 
-        // EPUB href-ek URL-kódolt karaktereket is tartalmazhatnak.
-        href = Uri.UnescapeDataString(href);
+        href =
+            Uri.UnescapeDataString(
+                href);
 
-        var combined = string.IsNullOrWhiteSpace(baseDirectory)
-            ? href
-            : $"{baseDirectory.TrimEnd('/')}/{href.TrimStart('/')}";
+        var combined =
+            string.IsNullOrWhiteSpace(
+                baseDirectory)
+                ? href
+                : $"{baseDirectory.TrimEnd('/')}/{href.TrimStart('/')}";
 
-        return NormalizePath(combined);
+        return NormalizePath(
+            combined);
     }
 
-    private static string GetDirectory(string path)
-    {
-        path = NormalizePath(path);
 
-        var slash = path.LastIndexOf('/');
+    private static string GetDirectory(
+        string path)
+    {
+        path =
+            NormalizePath(path);
+
+        var slash =
+            path.LastIndexOf('/');
 
         return slash < 0
             ? string.Empty
             : path[..slash];
     }
 
-    private static string NormalizePath(string path)
-    {
-        path = path
-            .Replace("\\", "/")
-            .Trim();
 
-        var parts = new List<string>();
+    private static string NormalizePath(
+        string path)
+    {
+        path =
+            path
+                .Replace("\\", "/")
+                .Trim();
+
+        var parts =
+            new List<string>();
 
         foreach (var part in path.Split(
-                     '/',
-                     StringSplitOptions.RemoveEmptyEntries))
+            '/',
+            StringSplitOptions.RemoveEmptyEntries))
         {
             if (part == ".")
                 continue;
@@ -430,7 +645,8 @@ public class EpubReaderV2 : IEpubReader
             if (part == "..")
             {
                 if (parts.Count > 0)
-                    parts.RemoveAt(parts.Count - 1);
+                    parts.RemoveAt(
+                        parts.Count - 1);
 
                 continue;
             }
@@ -438,15 +654,34 @@ public class EpubReaderV2 : IEpubReader
             parts.Add(part);
         }
 
-        return string.Join("/", parts);
+        return string.Join(
+            "/",
+            parts);
     }
 
-    private static bool IsImage(string path)
+
+    private static bool IsImage(
+        string path)
     {
-        return path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
-            || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
+        return
+            path.EndsWith(
+                ".jpg",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            path.EndsWith(
+                ".jpeg",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            path.EndsWith(
+                ".png",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            path.EndsWith(
+                ".webp",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            path.EndsWith(
+                ".gif",
+                StringComparison.OrdinalIgnoreCase);
     }
 }

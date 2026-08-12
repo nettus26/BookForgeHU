@@ -6,6 +6,7 @@ using BookForge.Core.Models;
 using BookForge.Services;
 using BookForge.Epub;
 using BookForge.App.Services;
+using Microsoft.Web.WebView2.Wpf;
 
 namespace BookForge.App;
 
@@ -17,10 +18,16 @@ public partial class MainWindow : Window
 
     private readonly List<Book> books = new();
 
+    private readonly WebView2 contentViewer;
+
 
     public MainWindow()
     {
         InitializeComponent();
+
+        contentViewer = new WebView2();
+
+        ReaderHost.Children.Add(contentViewer);
 
         importer = new ImportService();
 
@@ -29,14 +36,40 @@ public partial class MainWindow : Window
         coverService = new CoverService();
 
         LoadLibrary();
+
+        Loaded += MainWindow_Loaded;
     }
 
+
+    private async void MainWindow_Loaded(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            await contentViewer.EnsureCoreWebView2Async();
+
+            contentViewer.NavigateToString("""
+                <!DOCTYPE html>
+                <html>
+                <body style="font-family: Georgia, serif; margin: 30px;">
+                    <p>Válassz ki egy fejezetet.</p>
+                </body>
+                </html>
+                """);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.ToString(),
+                "WebView2 hiba");
+        }
+    }
 
 
     private void LoadLibrary()
     {
         var savedBooks = library.GetBooks();
-
 
         foreach (var savedBook in savedBooks)
         {
@@ -48,7 +81,6 @@ public partial class MainWindow : Window
 
                     var fullBook =
                         reader.Load(savedBook.FilePath);
-
 
                     books.Add(fullBook);
 
@@ -71,14 +103,14 @@ public partial class MainWindow : Window
     }
 
 
-
-    private void AddEpub_Click(object sender, RoutedEventArgs e)
+    private void AddEpub_Click(
+        object sender,
+        RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
         {
             Filter = "EPUB könyv (*.epub)|*.epub"
         };
-
 
         if (dialog.ShowDialog() == true)
         {
@@ -86,7 +118,6 @@ public partial class MainWindow : Window
             {
                 var book =
                     importer.ImportEpub(dialog.FileName);
-
 
                 books.Add(book);
 
@@ -102,7 +133,6 @@ public partial class MainWindow : Window
     }
 
 
-
     private void DeleteBook_Click(
         object sender,
         RoutedEventArgs e)
@@ -114,7 +144,6 @@ public partial class MainWindow : Window
                     $"Biztosan törlöd ezt a könyvet?\n\n{book.Title}",
                     "Könyv törlése",
                     MessageBoxButton.YesNo);
-
 
             if (result == MessageBoxResult.Yes)
             {
@@ -129,7 +158,6 @@ public partial class MainWindow : Window
                 ContentText.Text =
                     "Válassz ki egy fejezetet";
 
-
                 ChapterTitleText.Text = "";
 
                 BookTitleText.Text = "";
@@ -141,41 +169,50 @@ public partial class MainWindow : Window
                 BookDateText.Text = "";
 
                 CoverImageBox.Source = null;
+
+                contentViewer.NavigateToString("""
+                    <!DOCTYPE html>
+                    <html>
+                    <body>
+                        <p>Válassz ki egy fejezetet.</p>
+                    </body>
+                    </html>
+                    """);
             }
         }
     }
-private void BookList_SelectionChanged(
+
+
+    private void BookList_SelectionChanged(
         object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        System.Diagnostics.Debug.WriteLine("BOOKLIST ESEMÉNY FUT");
         if (BookList.SelectedItem is Book book)
         {
-            BookTitleText.Text = book.Title;
+            BookTitleText.Text =
+                book.Title;
 
-            BookAuthorText.Text = book.Author;
+            BookAuthorText.Text =
+                book.Author;
 
-            BookLanguageText.Text = book.Language;
+            BookLanguageText.Text =
+                book.Language;
 
             BookDateText.Text =
-                book.CreatedDate.ToString("yyyy.MM.dd.");
-
+                book.CreatedDate.ToString(
+                    "yyyy.MM.dd.");
 
             LoadCover(book);
 
-
             ChapterList.Items.Clear();
-
 
             foreach (var chapter in book.Chapters)
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"LISTÁBA TESZEM: {chapter.Title}");
-
                 ChapterList.Items.Add(chapter);
             }
         }
     }
+
 
     private void LoadCover(Book book)
     {
@@ -187,7 +224,6 @@ private void BookList_SelectionChanged(
             {
                 var image = new BitmapImage();
 
-
                 image.BeginInit();
 
                 image.UriSource =
@@ -198,16 +234,11 @@ private void BookList_SelectionChanged(
 
                 image.EndInit();
 
-
-                CoverImageBox.Source = image;
+                CoverImageBox.Source =
+                    image;
 
                 return;
             }
-
-
-
-            // Ha nincs EPUB borító,
-            // készítünk egy saját BookForge borítót
 
             CoverImageBox.Source =
                 coverService.CreateDefaultCover(
@@ -224,7 +255,6 @@ private void BookList_SelectionChanged(
     }
 
 
-
     private void ChapterList_SelectionChanged(
         object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
@@ -234,9 +264,31 @@ private void BookList_SelectionChanged(
             ChapterTitleText.Text =
                 chapter.Title;
 
-
             ContentText.Text =
                 chapter.Content;
+
+
+            MessageBox.Show(
+                $"Fejezet: {chapter.Title}\n\n" +
+                $"HtmlContent hossza: {chapter.HtmlContent?.Length ?? 0} karakter",
+                "EPUB ellenőrzés");
+
+
+            if (!string.IsNullOrWhiteSpace(
+                chapter.HtmlContent))
+            {
+                try
+                {
+                    contentViewer.NavigateToString(
+                        chapter.HtmlContent);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        ex.ToString(),
+                        "Fejezet megjelenítési hiba");
+                }
+            }
         }
     }
 }

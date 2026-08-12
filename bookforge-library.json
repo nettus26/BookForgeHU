@@ -7,29 +7,31 @@
     "FilePath": "C:\\Users\\missn\\BookForgeHU\\tests\\TestBook.epub",
     "CoverImage": "",
     "ISBN": "",
-    "CreatedDate": "2026-08-03T13:47:35.4752036+02:00",
+    "CreatedDate": "2026-08-12T14:44:56.2414311+02:00",
     "LastOpened": null,
     "Chapters": [
       {
         "Title": "Els\u0151 fejezet",
         "Order": 1,
-        "FilePath": "",
-        "Href": "",
+        "FilePath": "Text/chapter1.xhtml",
+        "Href": "Text/chapter1.xhtml",
         "Content": "Els\u0151 fejezet Ez a BookForge els\u0151 teszt fejezete.",
+        "HtmlContent": "",
         "WordCount": 8,
         "IsRead": false,
-        "CreatedDate": "2026-08-03T13:47:35.4754002+02:00",
+        "CreatedDate": "2026-08-12T14:44:56.2441486+02:00",
         "LastOpened": null
       },
       {
         "Title": "M\u00E1sodik fejezet",
         "Order": 2,
-        "FilePath": "",
-        "Href": "",
+        "FilePath": "Text/chapter2.xhtml",
+        "Href": "Text/chapter2.xhtml",
         "Content": "M\u00E1sodik fejezet A saj\u00E1t EPUB olvas\u00F3nk m\u0171k\u00F6d\u00E9s\u00E9t tesztelj\u00FCk.",
+        "HtmlContent": "",
         "WordCount": 8,
         "IsRead": false,
-        "CreatedDate": "2026-08-03T13:47:35.4754267+02:00",
+        "CreatedDate": "2026-08-12T14:44:56.2442033+02:00",
         "LastOpened": null
       }
     ]
