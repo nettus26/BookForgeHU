@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using BookForge.Core.Models;
 using BookForge.Services;
 using BookForge.Epub;
@@ -26,6 +27,7 @@ public partial class MainWindow : Window
 
     private string? pendingFragment;
 
+
     // =========================================================
     // OLVASÓ BEÁLLÍTÁSOK
     // =========================================================
@@ -40,6 +42,19 @@ public partial class MainWindow : Window
 
 
     // =========================================================
+    // OLVASÁSI POZÍCIÓ
+    // =========================================================
+
+    private readonly DispatcherTimer readingPositionTimer;
+
+    private Book? currentBook;
+
+    private Chapter? currentChapter;
+
+    private bool restoringReadingPosition = false;
+
+
+    // =========================================================
     // KONSTRUKTOR
     // =========================================================
 
@@ -47,15 +62,39 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        contentViewer = new WebView2();
+        contentViewer =
+            new WebView2();
 
-        ReaderHost.Children.Add(contentViewer);
+        ReaderHost.Children.Add(
+            contentViewer);
 
-        importer = new ImportService();
+        importer =
+            new ImportService();
 
-        library = new LibraryService();
+        library =
+            new LibraryService();
 
-        coverService = new CoverService();
+        coverService =
+            new CoverService();
+
+
+        // =====================================================
+        // OLVASÁSI POZÍCIÓ IDŐZÍTŐ
+        // =====================================================
+
+        readingPositionTimer =
+            new DispatcherTimer();
+
+        readingPositionTimer.Interval =
+            TimeSpan.FromSeconds(1);
+
+        readingPositionTimer.Tick +=
+            ReadingPositionTimer_Tick;
+
+
+        // =====================================================
+        // WEBVIEW2 ESEMÉNYEK
+        // =====================================================
 
         contentViewer.NavigationStarting +=
             ContentViewer_NavigationStarting;
@@ -63,9 +102,14 @@ public partial class MainWindow : Window
         contentViewer.NavigationCompleted +=
             ContentViewer_NavigationCompleted;
 
+
         LoadLibrary();
 
-        Loaded += MainWindow_Loaded;
+        Loaded +=
+            MainWindow_Loaded;
+
+        Closing +=
+            MainWindow_Closing;
     }
 
 
@@ -98,7 +142,8 @@ public partial class MainWindow : Window
     // OLVASÓ HTML
     // =========================================================
 
-    private string CreateReaderHtml(string html)
+    private string CreateReaderHtml(
+        string html)
     {
         if (string.IsNullOrWhiteSpace(html))
         {
@@ -266,7 +311,8 @@ public partial class MainWindow : Window
         {
             try
             {
-                if (File.Exists(savedBook.FilePath))
+                if (File.Exists(
+                    savedBook.FilePath))
                 {
                     var reader =
                         new EpubReader();
@@ -275,22 +321,37 @@ public partial class MainWindow : Window
                         reader.Load(
                             savedBook.FilePath);
 
-                    books.Add(fullBook);
+                    fullBook.LastOpened =
+                        savedBook.LastOpened;
 
-                    BookList.Items.Add(fullBook);
+                    fullBook.LastChapterPath =
+                        savedBook.LastChapterPath;
+
+                    fullBook.LastScrollPosition =
+                        savedBook.LastScrollPosition;
+
+                    books.Add(
+                        fullBook);
+
+                    BookList.Items.Add(
+                        fullBook);
                 }
                 else
                 {
-                    books.Add(savedBook);
+                    books.Add(
+                        savedBook);
 
-                    BookList.Items.Add(savedBook);
+                    BookList.Items.Add(
+                        savedBook);
                 }
             }
             catch
             {
-                books.Add(savedBook);
+                books.Add(
+                    savedBook);
 
-                BookList.Items.Add(savedBook);
+                BookList.Items.Add(
+                    savedBook);
             }
         }
     }
@@ -319,9 +380,11 @@ public partial class MainWindow : Window
                     importer.ImportEpub(
                         dialog.FileName);
 
-                books.Add(book);
+                books.Add(
+                    book);
 
-                BookList.Items.Add(book);
+                BookList.Items.Add(
+                    book);
             }
             catch (Exception ex)
             {
@@ -352,15 +415,27 @@ public partial class MainWindow : Window
             if (result ==
                 MessageBoxResult.Yes)
             {
-                library.RemoveBook(book);
+                SaveReadingPosition();
 
-                books.Remove(book);
+                library.RemoveBook(
+                    book);
 
-                BookList.Items.Remove(book);
+                books.Remove(
+                    book);
+
+                BookList.Items.Remove(
+                    book);
 
                 ChapterList.Items.Clear();
 
-                CoverImageBox.Source = null;
+                CoverImageBox.Source =
+                    null;
+
+                currentBook =
+                    null;
+
+                currentChapter =
+                    null;
 
                 contentViewer.NavigateToString(
                     CreateReaderHtml(
@@ -380,6 +455,14 @@ public partial class MainWindow : Window
     {
         if (BookList.SelectedItem is Book book)
         {
+            SaveReadingPosition();
+
+            currentBook =
+                book;
+
+            currentChapter =
+                null;
+
             BookTitleText.Text =
                 book.Title;
 
@@ -393,14 +476,19 @@ public partial class MainWindow : Window
                 book.CreatedDate.ToString(
                     "yyyy.MM.dd.");
 
-            LoadCover(book);
+            LoadCover(
+                book);
 
             ChapterList.Items.Clear();
 
             foreach (var chapter in book.Chapters)
             {
-                ChapterList.Items.Add(chapter);
+                ChapterList.Items.Add(
+                    chapter);
             }
+
+            RestoreLastReadingPosition(
+                book);
         }
     }
 
@@ -409,13 +497,16 @@ public partial class MainWindow : Window
     // BORÍTÓ
     // =========================================================
 
-    private void LoadCover(Book book)
+    private void LoadCover(
+        Book book)
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(book.CoverImage)
+            if (!string.IsNullOrWhiteSpace(
+                book.CoverImage)
                 &&
-                File.Exists(book.CoverImage))
+                File.Exists(
+                    book.CoverImage))
             {
                 var image =
                     new BitmapImage();
@@ -423,7 +514,8 @@ public partial class MainWindow : Window
                 image.BeginInit();
 
                 image.UriSource =
-                    new Uri(book.CoverImage);
+                    new Uri(
+                        book.CoverImage);
 
                 image.CacheOption =
                     BitmapCacheOption.OnLoad;
@@ -461,7 +553,8 @@ public partial class MainWindow : Window
     {
         if (ChapterList.SelectedItem is Chapter chapter)
         {
-            ShowChapter(chapter);
+            ShowChapter(
+                chapter);
         }
     }
 
@@ -470,16 +563,20 @@ public partial class MainWindow : Window
     // FEJEZET MEGJELENÍTÉSE
     // =========================================================
 
-    private void ShowChapter(Chapter chapter)
+    private void ShowChapter(
+        Chapter chapter)
     {
         if (string.IsNullOrWhiteSpace(
-                chapter.HtmlContent))
+            chapter.HtmlContent))
         {
             return;
         }
 
         try
         {
+            currentChapter =
+                chapter;
+
             var readerHtml =
                 CreateReaderHtml(
                     chapter.HtmlContent);
@@ -497,13 +594,15 @@ public partial class MainWindow : Window
 
 
     // =========================================================
-    // A− BETŰMÉRET CSÖKKENTÉSE
+    // A− BETŰMÉRET
     // =========================================================
 
     private void DecreaseFontButton_Click(
         object sender,
         RoutedEventArgs e)
     {
+        SaveReadingPosition();
+
         readerFontSize -= 1;
 
         if (readerFontSize < 12)
@@ -516,13 +615,15 @@ public partial class MainWindow : Window
 
 
     // =========================================================
-    // A+ BETŰMÉRET NÖVELÉSE
+    // A+ BETŰMÉRET
     // =========================================================
 
     private void IncreaseFontButton_Click(
         object sender,
         RoutedEventArgs e)
     {
+        SaveReadingPosition();
+
         readerFontSize += 1;
 
         if (readerFontSize > 40)
@@ -548,8 +649,11 @@ public partial class MainWindow : Window
             var font =
                 item.Content?.ToString();
 
-            if (!string.IsNullOrWhiteSpace(font))
+            if (!string.IsNullOrWhiteSpace(
+                font))
             {
+                SaveReadingPosition();
+
                 readerFontFamily =
                     font;
 
@@ -579,6 +683,8 @@ public partial class MainWindow : Window
                 System.Globalization.CultureInfo.InvariantCulture,
                 out var spacing))
             {
+                SaveReadingPosition();
+
                 readerLineSpacing =
                     spacing;
 
@@ -596,6 +702,8 @@ public partial class MainWindow : Window
         object sender,
         RoutedEventArgs e)
     {
+        SaveReadingPosition();
+
         darkMode =
             !darkMode;
 
@@ -614,10 +722,423 @@ public partial class MainWindow : Window
 
     private void RefreshCurrentChapter()
     {
-        if (ChapterList.SelectedItem is Chapter chapter)
+        if (ChapterList.SelectedItem
+            is Chapter chapter)
         {
-            ShowChapter(chapter);
+            ShowChapter(
+                chapter);
         }
+    }
+
+
+    // =========================================================
+    // OLVASÁSI POZÍCIÓ KÖVETÉSE
+    // =========================================================
+
+    private void StartReadingPositionTracking()
+    {
+        readingPositionTimer.Stop();
+
+        readingPositionTimer.Start();
+    }
+
+
+    private void StopReadingPositionTracking()
+    {
+        readingPositionTimer.Stop();
+    }
+
+
+    // =========================================================
+    // IDŐZÍTETT MENTÉS
+    // =========================================================
+
+    private async void ReadingPositionTimer_Tick(
+        object? sender,
+        EventArgs e)
+    {
+        if (restoringReadingPosition)
+        {
+            return;
+        }
+
+        await SaveReadingPositionAsync();
+    }
+
+
+    // =========================================================
+    // OLVASÁSI POZÍCIÓ MENTÉSE
+    // =========================================================
+
+    private void SaveReadingPosition()
+    {
+        try
+        {
+            // FONTOS:
+            // Induláskor a contentViewer még null lehet,
+            // mert a XAML eseményei előbb lefuthatnak.
+
+            if (contentViewer == null ||
+                contentViewer.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            if (currentBook == null ||
+                currentChapter == null)
+            {
+                return;
+            }
+
+            var script =
+                "JSON.stringify({" +
+                "scrollY: window.scrollY," +
+                "scrollHeight: document.documentElement.scrollHeight," +
+                "clientHeight: document.documentElement.clientHeight" +
+                "})";
+
+            var task =
+                contentViewer.ExecuteScriptAsync(
+                    script);
+
+            task.ContinueWith(
+                t =>
+                {
+                    if (t.IsFaulted ||
+                        t.IsCanceled)
+                    {
+                        return;
+                    }
+
+                    Dispatcher.Invoke(
+                        () =>
+                        {
+                            try
+                            {
+                                SavePositionFromJson(
+                                    t.Result);
+                            }
+                            catch
+                            {
+                            }
+                        });
+                });
+        }
+        catch
+        {
+        }
+    }
+
+
+    // =========================================================
+    // ASZINKRON POZÍCIÓMENTÉS
+    // =========================================================
+
+    private async System.Threading.Tasks.Task
+        SaveReadingPositionAsync()
+    {
+        try
+        {
+            if (contentViewer == null ||
+                contentViewer.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            if (currentBook == null ||
+                currentChapter == null)
+            {
+                return;
+            }
+
+            var script =
+                "JSON.stringify({" +
+                "scrollY: window.scrollY," +
+                "scrollHeight: document.documentElement.scrollHeight," +
+                "clientHeight: document.documentElement.clientHeight" +
+                "})";
+
+            var result =
+                await contentViewer.ExecuteScriptAsync(
+                    script);
+
+            SavePositionFromJson(
+                result);
+        }
+        catch
+        {
+        }
+    }
+
+
+    // =========================================================
+    // POZÍCIÓ FELDOLGOZÁSA
+    // =========================================================
+
+    private void SavePositionFromJson(
+        string json)
+    {
+        try
+        {
+            if (currentBook == null ||
+                currentChapter == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                json))
+            {
+                return;
+            }
+
+            var cleaned =
+                json.Trim('"')
+                    .Replace("\\\"", "\"");
+
+            using var document =
+                System.Text.Json.JsonDocument.Parse(
+                    cleaned);
+
+            var root =
+                document.RootElement;
+
+            if (!root.TryGetProperty(
+                "scrollY",
+                out var scrollYElement))
+            {
+                return;
+            }
+
+            var scrollY =
+                scrollYElement.GetDouble();
+
+            var chapterPath =
+                GetChapterPath(
+                    currentChapter);
+
+            library.UpdateReadingPosition(
+                currentBook,
+                chapterPath,
+                scrollY);
+
+            currentBook.LastChapterPath =
+                chapterPath;
+
+            currentBook.LastScrollPosition =
+                scrollY;
+
+            currentBook.LastOpened =
+                DateTime.Now;
+        }
+        catch
+        {
+        }
+    }
+
+
+    // =========================================================
+    // FEJEZET ÚTVONAL
+    // =========================================================
+
+    private static string GetChapterPath(
+        Chapter chapter)
+    {
+        if (!string.IsNullOrWhiteSpace(
+            chapter.FilePath))
+        {
+            return chapter.FilePath;
+        }
+
+        return chapter.Href ?? string.Empty;
+    }
+
+
+    // =========================================================
+    // UTOLSÓ OLVASÁSI HELY KERESÉSE
+    // =========================================================
+
+    private void RestoreLastReadingPosition(
+        Book book)
+    {
+        if (string.IsNullOrWhiteSpace(
+            book.LastChapterPath))
+        {
+            return;
+        }
+
+        var targetPath =
+            NormalizeChapterPath(
+                book.LastChapterPath);
+
+        var chapter =
+            book.Chapters.FirstOrDefault(
+                c =>
+                    string.Equals(
+                        NormalizeChapterPath(
+                            c.FilePath),
+                        targetPath,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        NormalizeChapterPath(
+                            c.Href),
+                        targetPath,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        Path.GetFileName(
+                            c.FilePath),
+                        Path.GetFileName(
+                            targetPath),
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (chapter == null)
+        {
+            return;
+        }
+
+        restoringReadingPosition =
+            true;
+
+        ChapterList.SelectedItem =
+            chapter;
+
+        ChapterList.ScrollIntoView(
+            chapter);
+
+        currentBook =
+            book;
+
+        currentChapter =
+            chapter;
+
+        ShowChapter(
+            chapter);
+    }
+
+
+    // =========================================================
+    // MENTETT GÖRGETÉSI POZÍCIÓ VISSZAÁLLÍTÁSA
+    // =========================================================
+
+    private async System.Threading.Tasks.Task
+        ApplySavedScrollPosition()
+    {
+        if (currentBook == null)
+        {
+            restoringReadingPosition =
+                false;
+
+            return;
+        }
+
+        var position =
+            currentBook.LastScrollPosition;
+
+        if (position <= 0)
+        {
+            restoringReadingPosition =
+                false;
+
+            StartReadingPositionTracking();
+
+            return;
+        }
+
+        try
+        {
+            var script =
+                "window.scrollTo(0, " +
+                position.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) +
+                ");";
+
+            await contentViewer.ExecuteScriptAsync(
+                script);
+        }
+        catch
+        {
+        }
+
+        restoringReadingPosition =
+            false;
+
+        StartReadingPositionTracking();
+    }
+
+
+    // =========================================================
+    // WEBVIEW2 BETÖLTÉS UTÁN
+    // =========================================================
+
+    private async void
+        ContentViewer_NavigationCompleted(
+        object? sender,
+        CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(
+            pendingFragment))
+        {
+            var fragment =
+                pendingFragment;
+
+            pendingFragment =
+                null;
+
+            try
+            {
+                var escaped =
+                    EscapeJavaScriptString(
+                        fragment);
+
+                var script =
+                    "(function() {" +
+                    "const element = " +
+                    "document.getElementById('" +
+                    escaped +
+                    "') || " +
+                    "document.getElementsByName('" +
+                    escaped +
+                    "')[0];" +
+                    "if (element) {" +
+                    "element.scrollIntoView({" +
+                    "behavior: 'smooth'," +
+                    "block: 'start'" +
+                    "});" +
+                    "}" +
+                    "})();";
+
+                await contentViewer.ExecuteScriptAsync(
+                    script);
+            }
+            catch
+            {
+            }
+
+            StartReadingPositionTracking();
+
+            return;
+        }
+
+
+        // =====================================================
+        // MENTETT POZÍCIÓ VISSZAÁLLÍTÁSA
+        // =====================================================
+
+        if (restoringReadingPosition)
+        {
+            await ApplySavedScrollPosition();
+
+            return;
+        }
+
+        StartReadingPositionTracking();
     }
 
 
@@ -629,7 +1150,8 @@ public partial class MainWindow : Window
         object? sender,
         CoreWebView2NavigationStartingEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(e.Uri))
+        if (string.IsNullOrWhiteSpace(
+            e.Uri))
         {
             return;
         }
@@ -648,6 +1170,8 @@ public partial class MainWindow : Window
 
         try
         {
+            SaveReadingPosition();
+
             var target =
                 e.Uri[prefix.Length..];
 
@@ -691,7 +1215,8 @@ public partial class MainWindow : Window
         string chapterPath,
         string fragment)
     {
-        if (BookList.SelectedItem is not Book book)
+        if (BookList.SelectedItem
+            is not Book book)
         {
             return;
         }
@@ -736,64 +1261,22 @@ public partial class MainWindow : Window
         ChapterList.ScrollIntoView(
             chapter);
 
-        ShowChapter(chapter);
+        ShowChapter(
+            chapter);
     }
 
 
     // =========================================================
-    // BELSŐ LINK CÉLPONT
+    // PROGRAM BEZÁRÁSA
     // =========================================================
 
-    private async void ContentViewer_NavigationCompleted(
+    private void MainWindow_Closing(
         object? sender,
-        CoreWebView2NavigationCompletedEventArgs e)
+        System.ComponentModel.CancelEventArgs e)
     {
-        if (!e.IsSuccess)
-        {
-            return;
-        }
+        StopReadingPositionTracking();
 
-        if (string.IsNullOrWhiteSpace(
-                pendingFragment))
-        {
-            return;
-        }
-
-        var fragment =
-            pendingFragment;
-
-        pendingFragment =
-            null;
-
-        try
-        {
-            var escaped =
-                EscapeJavaScriptString(
-                    fragment);
-
-            var script =
-                "(function() {" +
-                "const element = " +
-                "document.getElementById('" +
-                escaped +
-                "') || " +
-                "document.getElementsByName('" +
-                escaped +
-                "')[0];" +
-                "if (element) {" +
-                "element.scrollIntoView({" +
-                "behavior: 'smooth'," +
-                "block: 'start'" +
-                "});" +
-                "}" +
-                "})();";
-
-            await contentViewer.ExecuteScriptAsync(
-                script);
-        }
-        catch
-        {
-        }
+        SaveReadingPosition();
     }
 
 
@@ -820,7 +1303,8 @@ public partial class MainWindow : Window
     private static string NormalizeChapterPath(
         string? path)
     {
-        if (string.IsNullOrWhiteSpace(path))
+        if (string.IsNullOrWhiteSpace(
+            path))
         {
             return string.Empty;
         }
@@ -840,7 +1324,8 @@ public partial class MainWindow : Window
         }
 
         path =
-            Uri.UnescapeDataString(path);
+            Uri.UnescapeDataString(
+                path);
 
         var parts =
             path.Split(
@@ -868,7 +1353,8 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            result.Add(part);
+            result.Add(
+                part);
         }
 
         return string.Join(

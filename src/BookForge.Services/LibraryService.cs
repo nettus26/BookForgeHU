@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.Json;
 using BookForge.Core.Models;
 
@@ -9,29 +13,54 @@ public class LibraryService
         "bookforge-library.json";
 
 
+    // =========================================================
+    // KÖNYVEK BETÖLTÉSE
+    // =========================================================
+
     public List<Book> GetBooks()
     {
         if (!File.Exists(libraryFile))
+        {
             return new List<Book>();
+        }
 
-        var json = File.ReadAllText(libraryFile);
+        try
+        {
+            var json =
+                File.ReadAllText(
+                    libraryFile);
 
-        return JsonSerializer.Deserialize<List<Book>>(json)
-               ?? new List<Book>();
+            return
+                JsonSerializer.Deserialize<List<Book>>(
+                    json)
+                ?? new List<Book>();
+        }
+        catch
+        {
+            return new List<Book>();
+        }
     }
 
 
+    // =========================================================
+    // KÖNYV HOZZÁADÁSA
+    // =========================================================
+
     public void AddBook(Book book)
     {
-        var books = GetBooks();
+        var books =
+            GetBooks();
 
         // Duplikáció ellenőrzés
-        var exists = books.Any(b =>
-            b.Title == book.Title &&
-            b.Author == book.Author);
+        var exists =
+            books.Any(b =>
+                b.Title == book.Title &&
+                b.Author == book.Author);
 
         if (exists)
+        {
             return;
+        }
 
         books.Add(book);
 
@@ -39,27 +68,44 @@ public class LibraryService
     }
 
 
-    public Book? FindBook(string title)
-    {
-        var books = GetBooks();
+    // =========================================================
+    // KÖNYV KERESÉSE
+    // =========================================================
 
-        return books.FirstOrDefault(b =>
-            b.Title.Contains(
-                title,
-                StringComparison.OrdinalIgnoreCase));
+    public Book? FindBook(
+        string title)
+    {
+        var books =
+            GetBooks();
+
+        return books.FirstOrDefault(
+            b =>
+                b.Title.Contains(
+                    title,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
 
-    public void RemoveBook(Book book)
-    {
-        var books = GetBooks();
+    // =========================================================
+    // KÖNYV TÖRLÉSE
+    // =========================================================
 
-        var existing = books.FirstOrDefault(b =>
-            b.Title == book.Title &&
-            b.Author == book.Author);
+    public void RemoveBook(
+        Book book)
+    {
+        var books =
+            GetBooks();
+
+        var existing =
+            books.FirstOrDefault(
+                b =>
+                    b.Title == book.Title &&
+                    b.Author == book.Author);
 
         if (existing == null)
+        {
             return;
+        }
 
         books.Remove(existing);
 
@@ -67,31 +113,101 @@ public class LibraryService
     }
 
 
-    public void UpdateLastOpened(Book book)
-    {
-        var books = GetBooks();
+    // =========================================================
+    // UTOLSÓ MEGNYITÁS MENTÉSE
+    // =========================================================
 
-        var existing = books.FirstOrDefault(b =>
-            b.Title == book.Title &&
-            b.Author == book.Author);
+    public void UpdateLastOpened(
+        Book book)
+    {
+        var books =
+            GetBooks();
+
+        var existing =
+            books.FirstOrDefault(
+                b =>
+                    b.Title == book.Title &&
+                    b.Author == book.Author);
 
         if (existing == null)
+        {
             return;
+        }
 
-        existing.LastOpened = DateTime.Now;
+        existing.LastOpened =
+            DateTime.Now;
 
         Save(books);
     }
 
 
-    private void Save(List<Book> books)
+    // =========================================================
+    // OLVASÁSI POZÍCIÓ MENTÉSE
+    // =========================================================
+
+    public void UpdateReadingPosition(
+        Book book,
+        string chapterPath,
+        double scrollPosition)
     {
-        var json = JsonSerializer.Serialize(
-            books,
-            new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+        var books =
+            GetBooks();
+
+        var existing =
+            books.FirstOrDefault(
+                b =>
+                    b.Title == book.Title &&
+                    b.Author == book.Author);
+
+        if (existing == null)
+        {
+            return;
+        }
+
+        existing.LastOpened =
+            DateTime.Now;
+
+        existing.LastChapterPath =
+            chapterPath ?? string.Empty;
+
+        existing.LastScrollPosition =
+            scrollPosition;
+
+        Save(books);
+    }
+
+
+    // =========================================================
+    // OLVASÁSI POZÍCIÓ BETÖLTÉSE
+    // =========================================================
+
+    public Book? GetSavedReadingPosition(
+        Book book)
+    {
+        var books =
+            GetBooks();
+
+        return books.FirstOrDefault(
+            b =>
+                b.Title == book.Title &&
+                b.Author == book.Author);
+    }
+
+
+    // =========================================================
+    // MENTÉS
+    // =========================================================
+
+    private void Save(
+        List<Book> books)
+    {
+        var json =
+            JsonSerializer.Serialize(
+                books,
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
 
         File.WriteAllText(
             libraryFile,

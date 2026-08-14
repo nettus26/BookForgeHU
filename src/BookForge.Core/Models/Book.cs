@@ -13,6 +13,7 @@ public class Book
 
 
     // Könyv adatok
+
     public string Language { get; set; } = "hu";
 
     public string FilePath { get; set; } = string.Empty;
@@ -23,11 +24,26 @@ public class Book
 
 
     // Rendszer adatok
+
     public DateTime CreatedDate { get; set; } = DateTime.Now;
 
     public DateTime? LastOpened { get; set; }
 
 
-    // Fejezetek
+    // =========================================================
+    // OLVASÁSI POZÍCIÓ
+    // =========================================================
+
+    // Az utoljára olvasott fejezet elérési útja
+    public string LastChapterPath { get; set; } = string.Empty;
+
+    // Az utolsó mentett görgetési pozíció pixelben
+    public double LastScrollPosition { get; set; }
+
+
+    // =========================================================
+    // FEJEZETEK
+    // =========================================================
+
     public List<Chapter> Chapters { get; set; } = new();
 }
