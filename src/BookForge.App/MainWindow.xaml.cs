@@ -26,6 +26,22 @@ public partial class MainWindow : Window
 
     private string? pendingFragment;
 
+    // =========================================================
+    // OLVASÓ BEÁLLÍTÁSOK
+    // =========================================================
+
+    private double readerFontSize = 20;
+
+    private string readerFontFamily = "Georgia";
+
+    private double readerLineSpacing = 1.7;
+
+    private bool darkMode = false;
+
+
+    // =========================================================
+    // KONSTRUKTOR
+    // =========================================================
 
     public MainWindow()
     {
@@ -33,17 +49,13 @@ public partial class MainWindow : Window
 
         contentViewer = new WebView2();
 
-        ReaderHost.Children.Add(
-            contentViewer);
+        ReaderHost.Children.Add(contentViewer);
 
-        importer =
-            new ImportService();
+        importer = new ImportService();
 
-        library =
-            new LibraryService();
+        library = new LibraryService();
 
-        coverService =
-            new CoverService();
+        coverService = new CoverService();
 
         contentViewer.NavigationStarting +=
             ContentViewer_NavigationStarting;
@@ -56,6 +68,10 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
     }
 
+
+    // =========================================================
+    // WEBVIEW2 INDÍTÁSA
+    // =========================================================
 
     private async void MainWindow_Loaded(
         object sender,
@@ -78,8 +94,11 @@ public partial class MainWindow : Window
     }
 
 
-    private string CreateReaderHtml(
-        string html)
+    // =========================================================
+    // OLVASÓ HTML
+    // =========================================================
+
+    private string CreateReaderHtml(string html)
     {
         if (string.IsNullOrWhiteSpace(html))
         {
@@ -87,106 +106,156 @@ public partial class MainWindow : Window
                 "<p>Válassz ki egy fejezetet.</p>";
         }
 
-        var style = """
-            <style>
-                html {
-                    overflow-x: hidden;
-                }
+        var background =
+            darkMode
+                ? "#1e1e1e"
+                : "white";
 
-                body {
-                    font-family: Georgia, serif;
-                    font-size: 20px;
-                    line-height: 1.7;
-                    margin: 30px;
-                    color: #222;
-                    background: white;
-                    overflow-x: hidden;
-                    word-wrap: break-word;
-                    overflow-wrap: break-word;
-                }
+        var textColor =
+            darkMode
+                ? "#eeeeee"
+                : "#222222";
 
-                h1 {
-                    font-size: 32px;
-                    margin-top: 0;
-                    margin-bottom: 20px;
-                }
+        var headingColor =
+            darkMode
+                ? "#ffffff"
+                : "#222222";
 
-                h2 {
-                    font-size: 26px;
-                    margin-top: 24px;
-                    margin-bottom: 16px;
-                }
+        var linkColor =
+            darkMode
+                ? "#8ab4f8"
+                : "#0645ad";
 
-                h3 {
-                    font-size: 23px;
-                    margin-top: 20px;
-                    margin-bottom: 14px;
-                }
+        var fontSize =
+            readerFontSize.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
 
-                p {
-                    margin-top: 0;
-                    margin-bottom: 16px;
-                }
+        var lineSpacing =
+            readerLineSpacing.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
 
-                img {
-                    display: block;
-                    max-width: 100% !important;
-                    width: auto !important;
-                    height: auto !important;
-                    box-sizing: border-box;
-                    margin-left: auto;
-                    margin-right: auto;
-                }
+        var h1Size =
+            (readerFontSize * 1.6).ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
 
-                table {
-                    max-width: 100%;
-                    width: auto;
-                    box-sizing: border-box;
-                }
+        var h2Size =
+            (readerFontSize * 1.3).ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
 
-                pre,
-                code {
-                    max-width: 100%;
-                    white-space: pre-wrap;
-                    overflow-wrap: break-word;
-                }
+        var h3Size =
+            (readerFontSize * 1.15).ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
 
-                blockquote {
-                    margin-left: 20px;
-                    margin-right: 20px;
-                }
+        var style =
+            "<style>" +
 
-                a {
-                    cursor: pointer;
-                }
-            </style>
-            """;
+            "html {" +
+            "overflow-x: hidden;" +
+            "background: " + background + ";" +
+            "}" +
+
+            "body {" +
+            "font-family: '" + readerFontFamily + "', serif;" +
+            "font-size: " + fontSize + "px;" +
+            "line-height: " + lineSpacing + ";" +
+            "margin: 30px;" +
+            "color: " + textColor + ";" +
+            "background: " + background + ";" +
+            "overflow-x: hidden;" +
+            "word-wrap: break-word;" +
+            "overflow-wrap: break-word;" +
+            "}" +
+
+            "h1 {" +
+            "font-family: '" + readerFontFamily + "', serif;" +
+            "font-size: " + h1Size + "px;" +
+            "margin-top: 0;" +
+            "margin-bottom: 20px;" +
+            "color: " + headingColor + ";" +
+            "}" +
+
+            "h2 {" +
+            "font-family: '" + readerFontFamily + "', serif;" +
+            "font-size: " + h2Size + "px;" +
+            "margin-top: 24px;" +
+            "margin-bottom: 16px;" +
+            "color: " + headingColor + ";" +
+            "}" +
+
+            "h3 {" +
+            "font-family: '" + readerFontFamily + "', serif;" +
+            "font-size: " + h3Size + "px;" +
+            "margin-top: 20px;" +
+            "margin-bottom: 14px;" +
+            "color: " + headingColor + ";" +
+            "}" +
+
+            "p {" +
+            "margin-top: 0;" +
+            "margin-bottom: 16px;" +
+            "}" +
+
+            "a {" +
+            "color: " + linkColor + ";" +
+            "cursor: pointer;" +
+            "}" +
+
+            "img {" +
+            "display: block;" +
+            "max-width: 100% !important;" +
+            "width: auto !important;" +
+            "height: auto !important;" +
+            "box-sizing: border-box;" +
+            "margin-left: auto;" +
+            "margin-right: auto;" +
+            "}" +
+
+            "table {" +
+            "max-width: 100%;" +
+            "width: auto;" +
+            "box-sizing: border-box;" +
+            "}" +
+
+            "pre, code {" +
+            "max-width: 100%;" +
+            "white-space: pre-wrap;" +
+            "overflow-wrap: break-word;" +
+            "}" +
+
+            "blockquote {" +
+            "margin-left: 20px;" +
+            "margin-right: 20px;" +
+            "}" +
+
+            "</style>";
 
         if (html.Contains(
-                "</head>",
-                StringComparison.OrdinalIgnoreCase))
+            "</head>",
+            StringComparison.OrdinalIgnoreCase))
         {
-            return
-                html.Replace(
-                    "</head>",
-                    style + "</head>",
-                    StringComparison.OrdinalIgnoreCase);
+            return html.Replace(
+                "</head>",
+                style + "</head>",
+                StringComparison.OrdinalIgnoreCase);
         }
 
-        return $"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                {style}
-            </head>
-            <body>
-                {html}
-            </body>
-            </html>
-            """;
+        return
+            "<!DOCTYPE html>" +
+            "<html>" +
+            "<head>" +
+            "<meta charset=\"utf-8\">" +
+            style +
+            "</head>" +
+            "<body>" +
+            html +
+            "</body>" +
+            "</html>";
     }
 
+
+    // =========================================================
+    // KÖNYVTÁR BETÖLTÉSE
+    // =========================================================
 
     private void LoadLibrary()
     {
@@ -197,8 +266,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                if (File.Exists(
-                        savedBook.FilePath))
+                if (File.Exists(savedBook.FilePath))
                 {
                     var reader =
                         new EpubReader();
@@ -207,32 +275,30 @@ public partial class MainWindow : Window
                         reader.Load(
                             savedBook.FilePath);
 
-                    books.Add(
-                        fullBook);
+                    books.Add(fullBook);
 
-                    BookList.Items.Add(
-                        fullBook);
+                    BookList.Items.Add(fullBook);
                 }
                 else
                 {
-                    books.Add(
-                        savedBook);
+                    books.Add(savedBook);
 
-                    BookList.Items.Add(
-                        savedBook);
+                    BookList.Items.Add(savedBook);
                 }
             }
             catch
             {
-                books.Add(
-                    savedBook);
+                books.Add(savedBook);
 
-                BookList.Items.Add(
-                    savedBook);
+                BookList.Items.Add(savedBook);
             }
         }
     }
 
+
+    // =========================================================
+    // EPUB HOZZÁADÁSA
+    // =========================================================
 
     private void AddEpub_Click(
         object sender,
@@ -253,11 +319,9 @@ public partial class MainWindow : Window
                     importer.ImportEpub(
                         dialog.FileName);
 
-                books.Add(
-                    book);
+                books.Add(book);
 
-                BookList.Items.Add(
-                    book);
+                BookList.Items.Add(book);
             }
             catch (Exception ex)
             {
@@ -268,6 +332,10 @@ public partial class MainWindow : Window
         }
     }
 
+
+    // =========================================================
+    // KÖNYV TÖRLÉSE
+    // =========================================================
 
     private void DeleteBook_Click(
         object sender,
@@ -284,19 +352,15 @@ public partial class MainWindow : Window
             if (result ==
                 MessageBoxResult.Yes)
             {
-                library.RemoveBook(
-                    book);
+                library.RemoveBook(book);
 
-                books.Remove(
-                    book);
+                books.Remove(book);
 
-                BookList.Items.Remove(
-                    book);
+                BookList.Items.Remove(book);
 
                 ChapterList.Items.Clear();
 
-                CoverImageBox.Source =
-                    null;
+                CoverImageBox.Source = null;
 
                 contentViewer.NavigateToString(
                     CreateReaderHtml(
@@ -305,6 +369,10 @@ public partial class MainWindow : Window
         }
     }
 
+
+    // =========================================================
+    // KÖNYV KIVÁLASZTÁSA
+    // =========================================================
 
     private void BookList_SelectionChanged(
         object sender,
@@ -325,30 +393,29 @@ public partial class MainWindow : Window
                 book.CreatedDate.ToString(
                     "yyyy.MM.dd.");
 
-            LoadCover(
-                book);
+            LoadCover(book);
 
             ChapterList.Items.Clear();
 
             foreach (var chapter in book.Chapters)
             {
-                ChapterList.Items.Add(
-                    chapter);
+                ChapterList.Items.Add(chapter);
             }
         }
     }
 
 
-    private void LoadCover(
-        Book book)
+    // =========================================================
+    // BORÍTÓ
+    // =========================================================
+
+    private void LoadCover(Book book)
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(
-                    book.CoverImage)
+            if (!string.IsNullOrWhiteSpace(book.CoverImage)
                 &&
-                File.Exists(
-                    book.CoverImage))
+                File.Exists(book.CoverImage))
             {
                 var image =
                     new BitmapImage();
@@ -356,8 +423,7 @@ public partial class MainWindow : Window
                 image.BeginInit();
 
                 image.UriSource =
-                    new Uri(
-                        book.CoverImage);
+                    new Uri(book.CoverImage);
 
                 image.CacheOption =
                     BitmapCacheOption.OnLoad;
@@ -385,20 +451,26 @@ public partial class MainWindow : Window
     }
 
 
+    // =========================================================
+    // FEJEZET KIVÁLASZTÁSA
+    // =========================================================
+
     private void ChapterList_SelectionChanged(
         object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (ChapterList.SelectedItem is Chapter chapter)
         {
-            ShowChapter(
-                chapter);
+            ShowChapter(chapter);
         }
     }
 
 
-    private void ShowChapter(
-        Chapter chapter)
+    // =========================================================
+    // FEJEZET MEGJELENÍTÉSE
+    // =========================================================
+
+    private void ShowChapter(Chapter chapter)
     {
         if (string.IsNullOrWhiteSpace(
                 chapter.HtmlContent))
@@ -425,15 +497,139 @@ public partial class MainWindow : Window
 
 
     // =========================================================
-    // BELSŐ EPUB LINK ELKAPÁSA
+    // A− BETŰMÉRET CSÖKKENTÉSE
+    // =========================================================
+
+    private void DecreaseFontButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        readerFontSize -= 1;
+
+        if (readerFontSize < 12)
+        {
+            readerFontSize = 12;
+        }
+
+        RefreshCurrentChapter();
+    }
+
+
+    // =========================================================
+    // A+ BETŰMÉRET NÖVELÉSE
+    // =========================================================
+
+    private void IncreaseFontButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        readerFontSize += 1;
+
+        if (readerFontSize > 40)
+        {
+            readerFontSize = 40;
+        }
+
+        RefreshCurrentChapter();
+    }
+
+
+    // =========================================================
+    // BETŰTÍPUS
+    // =========================================================
+
+    private void FontFamilyComboBox_SelectionChanged(
+        object sender,
+        System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (FontFamilyComboBox.SelectedItem
+            is System.Windows.Controls.ComboBoxItem item)
+        {
+            var font =
+                item.Content?.ToString();
+
+            if (!string.IsNullOrWhiteSpace(font))
+            {
+                readerFontFamily =
+                    font;
+
+                RefreshCurrentChapter();
+            }
+        }
+    }
+
+
+    // =========================================================
+    // SORKÖZ
+    // =========================================================
+
+    private void LineSpacingComboBox_SelectionChanged(
+        object sender,
+        System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (LineSpacingComboBox.SelectedItem
+            is System.Windows.Controls.ComboBoxItem item)
+        {
+            var value =
+                item.Content?.ToString();
+
+            if (double.TryParse(
+                value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var spacing))
+            {
+                readerLineSpacing =
+                    spacing;
+
+                RefreshCurrentChapter();
+            }
+        }
+    }
+
+
+    // =========================================================
+    // VILÁGOS / SÖTÉT MÓD
+    // =========================================================
+
+    private void ThemeButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        darkMode =
+            !darkMode;
+
+        ThemeButton.Content =
+            darkMode
+                ? "☀️ Világos"
+                : "🌙 Sötét";
+
+        RefreshCurrentChapter();
+    }
+
+
+    // =========================================================
+    // AKTUÁLIS FEJEZET FRISSÍTÉSE
+    // =========================================================
+
+    private void RefreshCurrentChapter()
+    {
+        if (ChapterList.SelectedItem is Chapter chapter)
+        {
+            ShowChapter(chapter);
+        }
+    }
+
+
+    // =========================================================
+    // BELSŐ EPUB LINK
     // =========================================================
 
     private void ContentViewer_NavigationStarting(
         object? sender,
         CoreWebView2NavigationStartingEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(
-                e.Uri))
+        if (string.IsNullOrWhiteSpace(e.Uri))
         {
             return;
         }
@@ -442,8 +638,8 @@ public partial class MainWindow : Window
             "bookforge://chapter/";
 
         if (!e.Uri.StartsWith(
-                prefix,
-                StringComparison.OrdinalIgnoreCase))
+            prefix,
+            StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -495,8 +691,7 @@ public partial class MainWindow : Window
         string chapterPath,
         string fragment)
     {
-        if (BookList.SelectedItem
-            is not Book book)
+        if (BookList.SelectedItem is not Book book)
         {
             return;
         }
@@ -541,13 +736,12 @@ public partial class MainWindow : Window
         ChapterList.ScrollIntoView(
             chapter);
 
-        ShowChapter(
-            chapter);
+        ShowChapter(chapter);
     }
 
 
     // =========================================================
-    // FEJEZET BETÖLTÉSE UTÁNI UGRÁS
+    // BELSŐ LINK CÉLPONT
     // =========================================================
 
     private async void ContentViewer_NavigationCompleted(
@@ -555,7 +749,9 @@ public partial class MainWindow : Window
         CoreWebView2NavigationCompletedEventArgs e)
     {
         if (!e.IsSuccess)
+        {
             return;
+        }
 
         if (string.IsNullOrWhiteSpace(
                 pendingFragment))
@@ -597,14 +793,12 @@ public partial class MainWindow : Window
         }
         catch
         {
-            // Ha a célpont nem található,
-            // nem állítjuk le az olvasót.
         }
     }
 
 
     // =========================================================
-    // JAVASCRIPT STRING ESCAPELÉSE
+    // JAVASCRIPT STRING ESCAPELÉS
     // =========================================================
 
     private static string EscapeJavaScriptString(
@@ -626,8 +820,7 @@ public partial class MainWindow : Window
     private static string NormalizeChapterPath(
         string? path)
     {
-        if (string.IsNullOrWhiteSpace(
-                path))
+        if (string.IsNullOrWhiteSpace(path))
         {
             return string.Empty;
         }
@@ -647,8 +840,7 @@ public partial class MainWindow : Window
         }
 
         path =
-            Uri.UnescapeDataString(
-                path);
+            Uri.UnescapeDataString(path);
 
         var parts =
             path.Split(
@@ -661,19 +853,22 @@ public partial class MainWindow : Window
         foreach (var part in parts)
         {
             if (part == ".")
+            {
                 continue;
+            }
 
             if (part == "..")
             {
                 if (result.Count > 0)
+                {
                     result.RemoveAt(
                         result.Count - 1);
+                }
 
                 continue;
             }
 
-            result.Add(
-                part);
+            result.Add(part);
         }
 
         return string.Join(

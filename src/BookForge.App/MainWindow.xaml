@@ -13,7 +13,10 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+
+        <!-- ===================================================== -->
         <!-- FEJLÉC -->
+        <!-- ===================================================== -->
 
         <StackPanel Grid.Row="0">
 
@@ -33,19 +36,28 @@
         </StackPanel>
 
 
+        <!-- ===================================================== -->
         <!-- FŐTERÜLET -->
+        <!-- ===================================================== -->
 
         <Grid Grid.Row="1">
 
             <Grid.ColumnDefinitions>
+
                 <ColumnDefinition Width="250"/>
+
                 <ColumnDefinition Width="320"/>
+
                 <ColumnDefinition Width="250"/>
+
                 <ColumnDefinition Width="*"/>
+
             </Grid.ColumnDefinitions>
 
 
+            <!-- ================================================= -->
             <!-- KÖNYVTÁR -->
+            <!-- ================================================= -->
 
             <GroupBox
                 Header="Könyvtár"
@@ -61,6 +73,7 @@
                         Margin="5"
                         Click="DeleteBook_Click"/>
 
+
                     <ListView
                         x:Name="BookList"
                         SelectionChanged="BookList_SelectionChanged">
@@ -69,7 +82,8 @@
 
                             <DataTemplate>
 
-                                <StackPanel Margin="5">
+                                <StackPanel
+                                    Margin="5">
 
                                     <TextBlock
                                         Text="{Binding Title}"
@@ -92,7 +106,9 @@
             </GroupBox>
 
 
+            <!-- ================================================= -->
             <!-- KÖNYV ADATOK -->
+            <!-- ================================================= -->
 
             <GroupBox
                 Header="Könyv adatok"
@@ -105,6 +121,7 @@
                         Margin="10"
                         HorizontalAlignment="Center">
 
+
                         <Image
                             x:Name="CoverImageBox"
                             Width="200"
@@ -113,12 +130,14 @@
                             HorizontalAlignment="Center"
                             Margin="0,10,0,20"/>
 
+
                         <TextBlock
                             Text="Cím:"
                             FontWeight="Bold"/>
 
                         <TextBlock
                             x:Name="BookTitleText"/>
+
 
                         <TextBlock
                             Text="Szerző:"
@@ -128,6 +147,7 @@
                         <TextBlock
                             x:Name="BookAuthorText"/>
 
+
                         <TextBlock
                             Text="Nyelv:"
                             FontWeight="Bold"
@@ -135,6 +155,7 @@
 
                         <TextBlock
                             x:Name="BookLanguageText"/>
+
 
                         <TextBlock
                             Text="Hozzáadva:"
@@ -151,7 +172,9 @@
             </GroupBox>
 
 
+            <!-- ================================================= -->
             <!-- FEJEZETEK -->
+            <!-- ================================================= -->
 
             <GroupBox
                 Header="Fejezetek"
@@ -180,15 +203,157 @@
             </GroupBox>
 
 
+            <!-- ================================================= -->
             <!-- OLVASÓ -->
+            <!-- ================================================= -->
 
             <GroupBox
                 Header="Olvasó"
                 Grid.Column="3">
 
-                <Grid
-                    x:Name="ReaderHost"
-                    Margin="5"/>
+                <Grid>
+
+                    <Grid.RowDefinitions>
+
+                        <RowDefinition
+                            Height="Auto"/>
+
+                        <RowDefinition
+                            Height="*"/>
+
+                    </Grid.RowDefinitions>
+
+
+                    <!-- ========================================= -->
+                    <!-- OLVASÓ VEZÉRLŐSÁV -->
+                    <!-- ========================================= -->
+
+                    <Border
+                        Grid.Row="0"
+                        Margin="5"
+                        Padding="8"
+                        BorderThickness="1"
+                        CornerRadius="6">
+
+                        <StackPanel
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Left">
+
+
+                            <!-- BETŰMÉRET CSÖKKENTÉSE -->
+
+                            <Button
+                                x:Name="DecreaseFontButton"
+                                Content="A−"
+                                Width="45"
+                                Height="32"
+                                Margin="0,0,5,0"
+                                ToolTip="Betűméret csökkentése"
+                                Click="DecreaseFontButton_Click"/>
+
+
+                            <!-- BETŰMÉRET NÖVELÉSE -->
+
+                            <Button
+                                x:Name="IncreaseFontButton"
+                                Content="A+"
+                                Width="45"
+                                Height="32"
+                                Margin="0,0,15,0"
+                                ToolTip="Betűméret növelése"
+                                Click="IncreaseFontButton_Click"/>
+
+
+                            <!-- BETŰTÍPUS -->
+
+                            <TextBlock
+                                Text="Betűtípus:"
+                                VerticalAlignment="Center"
+                                Margin="0,0,5,0"/>
+
+
+                            <ComboBox
+                                x:Name="FontFamilyComboBox"
+                                Width="120"
+                                Height="32"
+                                Margin="0,0,15,0"
+                                SelectionChanged="FontFamilyComboBox_SelectionChanged">
+
+                                <ComboBoxItem
+                                    Content="Georgia"
+                                    IsSelected="True"/>
+
+                                <ComboBoxItem
+                                    Content="Arial"/>
+
+                                <ComboBoxItem
+                                    Content="Verdana"/>
+
+                                <ComboBoxItem
+                                    Content="Times New Roman"/>
+
+                                <ComboBoxItem
+                                    Content="Courier New"/>
+
+                            </ComboBox>
+
+
+                            <!-- SORKÖZ -->
+
+                            <TextBlock
+                                Text="Sorköz:"
+                                VerticalAlignment="Center"
+                                Margin="0,0,5,0"/>
+
+
+                            <ComboBox
+                                x:Name="LineSpacingComboBox"
+                                Width="90"
+                                Height="32"
+                                Margin="0,0,15,0"
+                                SelectionChanged="LineSpacingComboBox_SelectionChanged">
+
+                                <ComboBoxItem
+                                    Content="1.3"/>
+
+                                <ComboBoxItem
+                                    Content="1.5"
+                                    IsSelected="True"/>
+
+                                <ComboBoxItem
+                                    Content="1.7"/>
+
+                                <ComboBoxItem
+                                    Content="2.0"/>
+
+                            </ComboBox>
+
+
+                            <!-- TÉMA -->
+
+                            <Button
+                                x:Name="ThemeButton"
+                                Content="🌙 Sötét"
+                                Width="90"
+                                Height="32"
+                                ToolTip="Világos / sötét mód"
+                                Click="ThemeButton_Click"/>
+
+                        </StackPanel>
+
+                    </Border>
+
+
+                    <!-- ========================================= -->
+                    <!-- WEBVIEW2 OLVASÓ -->
+                    <!-- ========================================= -->
+
+                    <Grid
+                        x:Name="ReaderHost"
+                        Grid.Row="1"
+                        Margin="5"/>
+
+                </Grid>
 
             </GroupBox>
 
