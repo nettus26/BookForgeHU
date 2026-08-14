@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using BookForge.Core.Models;
@@ -31,43 +30,65 @@ public class EpubReaderV2 : IEpubReader
         using var package = new EpubPackage(filePath);
         using var archive = package.Open();
 
-        var contentReader = new EpubContentReader();
+        var contentReader =
+            new EpubContentReader();
 
-        var containerXml = contentReader.ReadEntry(
-            archive,
-            "META-INF/container.xml");
+        var containerXml =
+            contentReader.ReadEntry(
+                archive,
+                "META-INF/container.xml");
 
-        var containerParser = new ContainerParser();
+        var containerParser =
+            new ContainerParser();
 
         var contentPath =
-            containerParser.FindContentPath(containerXml);
+            containerParser.FindContentPath(
+                containerXml);
 
         if (string.IsNullOrWhiteSpace(contentPath))
             throw new InvalidDataException(
                 "Nem található content.opf az EPUB-ban.");
 
-        contentPath = NormalizePath(contentPath);
+        contentPath =
+            NormalizePath(contentPath);
 
         var contentXml =
             contentReader.ReadEntry(
                 archive,
                 contentPath);
 
-        var contentParser = new ContentParser();
+        var contentParser =
+            new ContentParser();
 
-        var book = contentParser.Parse(contentXml);
+        var book =
+            contentParser.Parse(contentXml);
 
-        book.FilePath = filePath;
+        book.FilePath =
+            filePath;
 
-        var manifestParser = new ManifestParser();
+        // ============================
+        // MANIFEST
+        // ============================
+
+        var manifestParser =
+            new ManifestParser();
 
         var manifest =
             manifestParser.Parse(contentXml);
 
-        var spineParser = new SpineParser();
+        // ============================
+        // SPINE
+        // ============================
+
+        var spineParser =
+            new SpineParser();
 
         var spine =
             spineParser.Parse(contentXml);
+
+        // ============================
+        // BORÍTÓ
+        // ============================
 
         book.CoverImage =
             SaveCover(
@@ -76,12 +97,20 @@ public class EpubReaderV2 : IEpubReader
                 manifest,
                 contentPath);
 
+        // ============================
+        // TARTALOMJEGYZÉK
+        // ============================
+
         var toc =
             LoadTableOfContents(
                 archive,
                 contentXml,
                 manifest,
                 contentPath);
+
+        // ============================
+        // FEJEZETEK
+        // ============================
 
         LoadChapters(
             archive,
@@ -94,6 +123,10 @@ public class EpubReaderV2 : IEpubReader
         return book;
     }
 
+
+    // =========================================================
+    // FEJEZETEK
+    // =========================================================
 
     private static void LoadChapters(
         ZipArchive archive,
@@ -144,15 +177,38 @@ public class EpubReaderV2 : IEpubReader
                    new StreamReader(
                        chapterEntry.Open()))
             {
-                html = reader.ReadToEnd();
+                html =
+                    reader.ReadToEnd();
             }
 
-            // EPUB KÉPEK BEÁGYAZÁSA
+            // ============================
+            // KÉPEK
+            // ============================
+
             html =
                 EmbedImages(
                     html,
                     chapterPath,
                     archive);
+
+            // ============================
+            // EPUB SAJÁT CSS
+            // ============================
+
+            html =
+                EmbedStylesheets(
+                    html,
+                    chapterPath,
+                    archive);
+
+            // ============================
+            // BELSŐ EPUB LINKEK
+            // ============================
+
+            html =
+                ConvertInternalLinks(
+                    html,
+                    chapterPath);
 
             Debug.WriteLine(
                 $"EPUB | Fejezet: {chapterPath}");
@@ -190,6 +246,10 @@ public class EpubReaderV2 : IEpubReader
         }
     }
 
+
+    // =========================================================
+    // KÉPEK BEÁGYAZÁSA
+    // =========================================================
 
     private static string EmbedImages(
         string html,
@@ -261,7 +321,8 @@ public class EpubReaderV2 : IEpubReader
                             entry.FullName);
 
                     var mimeType =
-                        GetImageMimeType(extension);
+                        GetImageMimeType(
+                            extension);
 
                     if (mimeType == null)
                         return match.Value;
@@ -296,6 +357,308 @@ public class EpubReaderV2 : IEpubReader
     }
 
 
+    // =========================================================
+    // EPUB CSS BEÁGYAZÁSA
+    // =========================================================
+
+    private static string EmbedStylesheets(
+        string html,
+        string chapterPath,
+        ZipArchive archive)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return html;
+
+        var chapterDirectory =
+            GetDirectory(chapterPath);
+
+        var stylesheetPattern =
+            @"<link\b[^>]*?\brel\s*=\s*[""'][^""']*stylesheet[^""']*[""'][^>]*>";
+
+        var result =
+            Regex.Replace(
+                html,
+                stylesheetPattern,
+                match =>
+                {
+                    var linkTag =
+                        match.Value;
+
+                    var hrefMatch =
+                        Regex.Match(
+                            linkTag,
+                            @"\bhref\s*=\s*[""']([^""']+)[""']",
+                            RegexOptions.IgnoreCase);
+
+                    if (!hrefMatch.Success)
+                        return linkTag;
+
+                    var href =
+                        hrefMatch.Groups[1].Value;
+
+                    if (href.StartsWith(
+                            "http://",
+                            StringComparison.OrdinalIgnoreCase)
+                        ||
+                        href.StartsWith(
+                            "https://",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return linkTag;
+                    }
+
+                    try
+                    {
+                        var cssPath =
+                            ResolvePath(
+                                chapterDirectory,
+                                href);
+
+                        var cssEntry =
+                            FindEntry(
+                                archive,
+                                cssPath);
+
+                        if (cssEntry == null)
+                            return linkTag;
+
+                        string css;
+
+                        using (var reader =
+                               new StreamReader(
+                                   cssEntry.Open()))
+                        {
+                            css =
+                                reader.ReadToEnd();
+                        }
+
+                        css =
+                            EmbedCssImages(
+                                css,
+                                cssPath,
+                                archive);
+
+                        return
+                            $"<style>\n{css}\n</style>";
+                    }
+                    catch
+                    {
+                        return linkTag;
+                    }
+                },
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        return result;
+    }
+
+
+    // =========================================================
+    // CSS-BEN LÉVŐ KÉPEK
+    // =========================================================
+
+    private static string EmbedCssImages(
+        string css,
+        string cssPath,
+        ZipArchive archive)
+    {
+        if (string.IsNullOrWhiteSpace(css))
+            return css;
+
+        var cssDirectory =
+            GetDirectory(cssPath);
+
+        var pattern =
+            @"url\s*\(\s*[""']?([^""')]+)[""']?\s*\)";
+
+        return Regex.Replace(
+            css,
+            pattern,
+            match =>
+            {
+                var imageHref =
+                    match.Groups[1].Value.Trim();
+
+                if (imageHref.StartsWith(
+                        "data:",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                if (imageHref.StartsWith(
+                        "http://",
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    imageHref.StartsWith(
+                        "https://",
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    imageHref.StartsWith(
+                        "//",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                try
+                {
+                    var imagePath =
+                        ResolvePath(
+                            cssDirectory,
+                            imageHref);
+
+                    var entry =
+                        FindEntry(
+                            archive,
+                            imagePath);
+
+                    if (entry == null)
+                        return match.Value;
+
+                    var mimeType =
+                        GetImageMimeType(
+                            Path.GetExtension(
+                                entry.FullName));
+
+                    if (mimeType == null)
+                        return match.Value;
+
+                    using var stream =
+                        entry.Open();
+
+                    using var memory =
+                        new MemoryStream();
+
+                    stream.CopyTo(memory);
+
+                    var base64 =
+                        Convert.ToBase64String(
+                            memory.ToArray());
+
+                    return
+                        $"url(data:{mimeType};base64,{base64})";
+                }
+                catch
+                {
+                    return match.Value;
+                }
+            },
+            RegexOptions.IgnoreCase);
+    }
+
+
+    // =========================================================
+    // BELSŐ EPUB LINKEK
+    // =========================================================
+
+    private static string ConvertInternalLinks(
+        string html,
+        string chapterPath)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return html;
+
+        var chapterDirectory =
+            GetDirectory(chapterPath);
+
+        var pattern =
+            @"(<a\b[^>]*?\bhref\s*=\s*[""'])([^""']+)([""'])";
+
+        return Regex.Replace(
+            html,
+            pattern,
+            match =>
+            {
+                var prefix =
+                    match.Groups[1].Value;
+
+                var href =
+                    match.Groups[2].Value;
+
+                var suffix =
+                    match.Groups[3].Value;
+
+                // Külső internetes link
+                if (href.StartsWith(
+                        "http://",
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    href.StartsWith(
+                        "https://",
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    href.StartsWith(
+                        "mailto:",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                // Már speciális vagy adat link
+                if (href.StartsWith(
+                        "data:",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                // Csak ugyanazon fejezeten belüli hivatkozás
+                if (href.StartsWith("#"))
+                {
+                    return match.Value;
+                }
+
+                var fragment = "";
+
+                var fragmentIndex =
+                    href.IndexOf('#');
+
+                if (fragmentIndex >= 0)
+                {
+                    fragment =
+                        href[fragmentIndex..];
+
+                    href =
+                        href[..fragmentIndex];
+                }
+
+                if (string.IsNullOrWhiteSpace(href))
+                    return match.Value;
+
+                try
+                {
+                    var targetPath =
+                        ResolvePath(
+                            chapterDirectory,
+                            href);
+
+                    var encodedPath =
+                        Uri.EscapeDataString(
+                            targetPath);
+
+                    var encodedFragment =
+                        string.IsNullOrWhiteSpace(
+                            fragment)
+                            ? ""
+                            : fragment;
+
+                    return
+                        prefix +
+                        $"bookforge://chapter/{encodedPath}" +
+                        encodedFragment +
+                        suffix;
+                }
+                catch
+                {
+                    return match.Value;
+                }
+            },
+            RegexOptions.IgnoreCase |
+            RegexOptions.Singleline);
+    }
+
+
     private static string? GetImageMimeType(
         string extension)
     {
@@ -312,6 +675,10 @@ public class EpubReaderV2 : IEpubReader
         };
     }
 
+
+    // =========================================================
+    // TARTALOMJEGYZÉK
+    // =========================================================
 
     private static Dictionary<string, string>
         LoadTableOfContents(
@@ -333,6 +700,7 @@ public class EpubReaderV2 : IEpubReader
         var contentDirectory =
             GetDirectory(contentPath);
 
+        // EPUB 3 NAV
         var navItem =
             document
                 .Descendants(opf + "item")
@@ -387,6 +755,7 @@ public class EpubReaderV2 : IEpubReader
             }
         }
 
+        // EPUB 2 NCX
         if (result.Count == 0)
         {
             string? ncxHref = null;
@@ -465,6 +834,10 @@ public class EpubReaderV2 : IEpubReader
     }
 
 
+    // =========================================================
+    // BORÍTÓ
+    // =========================================================
+
     private static string SaveCover(
         ZipArchive archive,
         string contentXml,
@@ -524,7 +897,8 @@ public class EpubReaderV2 : IEpubReader
                     coverId,
                     out var href))
             {
-                coverHref = href;
+                coverHref =
+                    href;
             }
         }
 
@@ -598,6 +972,10 @@ public class EpubReaderV2 : IEpubReader
         }
     }
 
+
+    // =========================================================
+    // SEGÉDFÜGGVÉNYEK
+    // =========================================================
 
     private static void AddNormalizedTocEntries(
         Dictionary<string, string> target,
@@ -678,8 +1056,10 @@ public class EpubReaderV2 : IEpubReader
             href.IndexOf('#');
 
         if (queryIndex >= 0)
+        {
             href =
                 href[..queryIndex];
+        }
 
         href =
             Uri.UnescapeDataString(

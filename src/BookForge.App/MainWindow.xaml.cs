@@ -1,11 +1,15 @@
 ﻿using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using BookForge.Core.Models;
 using BookForge.Services;
 using BookForge.Epub;
 using BookForge.App.Services;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace BookForge.App;
@@ -20,6 +24,8 @@ public partial class MainWindow : Window
 
     private readonly WebView2 contentViewer;
 
+    private string? pendingFragment;
+
 
     public MainWindow()
     {
@@ -27,13 +33,23 @@ public partial class MainWindow : Window
 
         contentViewer = new WebView2();
 
-        ReaderHost.Children.Add(contentViewer);
+        ReaderHost.Children.Add(
+            contentViewer);
 
-        importer = new ImportService();
+        importer =
+            new ImportService();
 
-        library = new LibraryService();
+        library =
+            new LibraryService();
 
-        coverService = new CoverService();
+        coverService =
+            new CoverService();
+
+        contentViewer.NavigationStarting +=
+            ContentViewer_NavigationStarting;
+
+        contentViewer.NavigationCompleted +=
+            ContentViewer_NavigationCompleted;
 
         LoadLibrary();
 
@@ -62,7 +78,8 @@ public partial class MainWindow : Window
     }
 
 
-    private string CreateReaderHtml(string html)
+    private string CreateReaderHtml(
+        string html)
     {
         if (string.IsNullOrWhiteSpace(html))
         {
@@ -138,6 +155,10 @@ public partial class MainWindow : Window
                     margin-left: 20px;
                     margin-right: 20px;
                 }
+
+                a {
+                    cursor: pointer;
+                }
             </style>
             """;
 
@@ -186,14 +207,16 @@ public partial class MainWindow : Window
                         reader.Load(
                             savedBook.FilePath);
 
-                    books.Add(fullBook);
+                    books.Add(
+                        fullBook);
 
                     BookList.Items.Add(
                         fullBook);
                 }
                 else
                 {
-                    books.Add(savedBook);
+                    books.Add(
+                        savedBook);
 
                     BookList.Items.Add(
                         savedBook);
@@ -201,7 +224,8 @@ public partial class MainWindow : Window
             }
             catch
             {
-                books.Add(savedBook);
+                books.Add(
+                    savedBook);
 
                 BookList.Items.Add(
                     savedBook);
@@ -229,9 +253,11 @@ public partial class MainWindow : Window
                     importer.ImportEpub(
                         dialog.FileName);
 
-                books.Add(book);
+                books.Add(
+                    book);
 
-                BookList.Items.Add(book);
+                BookList.Items.Add(
+                    book);
             }
             catch (Exception ex)
             {
@@ -258,15 +284,19 @@ public partial class MainWindow : Window
             if (result ==
                 MessageBoxResult.Yes)
             {
-                library.RemoveBook(book);
+                library.RemoveBook(
+                    book);
 
-                books.Remove(book);
+                books.Remove(
+                    book);
 
-                BookList.Items.Remove(book);
+                BookList.Items.Remove(
+                    book);
 
                 ChapterList.Items.Clear();
 
-                CoverImageBox.Source = null;
+                CoverImageBox.Source =
+                    null;
 
                 contentViewer.NavigateToString(
                     CreateReaderHtml(
@@ -295,7 +325,8 @@ public partial class MainWindow : Window
                 book.CreatedDate.ToString(
                     "yyyy.MM.dd.");
 
-            LoadCover(book);
+            LoadCover(
+                book);
 
             ChapterList.Items.Clear();
 
@@ -308,7 +339,8 @@ public partial class MainWindow : Window
     }
 
 
-    private void LoadCover(Book book)
+    private void LoadCover(
+        Book book)
     {
         try
         {
@@ -359,25 +391,293 @@ public partial class MainWindow : Window
     {
         if (ChapterList.SelectedItem is Chapter chapter)
         {
-            if (!string.IsNullOrWhiteSpace(
-                    chapter.HtmlContent))
-            {
-                try
-                {
-                    var readerHtml =
-                        CreateReaderHtml(
-                            chapter.HtmlContent);
-
-                    contentViewer.NavigateToString(
-                        readerHtml);
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show(
-                        ex.ToString(),
-                        "Fejezet megjelenítési hiba");
-                }
-            }
+            ShowChapter(
+                chapter);
         }
+    }
+
+
+    private void ShowChapter(
+        Chapter chapter)
+    {
+        if (string.IsNullOrWhiteSpace(
+                chapter.HtmlContent))
+        {
+            return;
+        }
+
+        try
+        {
+            var readerHtml =
+                CreateReaderHtml(
+                    chapter.HtmlContent);
+
+            contentViewer.NavigateToString(
+                readerHtml);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.ToString(),
+                "Fejezet megjelenítési hiba");
+        }
+    }
+
+
+    // =========================================================
+    // BELSŐ EPUB LINK ELKAPÁSA
+    // =========================================================
+
+    private void ContentViewer_NavigationStarting(
+        object? sender,
+        CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(
+                e.Uri))
+        {
+            return;
+        }
+
+        const string prefix =
+            "bookforge://chapter/";
+
+        if (!e.Uri.StartsWith(
+                prefix,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        e.Cancel = true;
+
+        try
+        {
+            var target =
+                e.Uri[prefix.Length..];
+
+            var fragment =
+                string.Empty;
+
+            var fragmentIndex =
+                target.IndexOf('#');
+
+            if (fragmentIndex >= 0)
+            {
+                fragment =
+                    target[(fragmentIndex + 1)..];
+
+                target =
+                    target[..fragmentIndex];
+            }
+
+            var chapterPath =
+                Uri.UnescapeDataString(
+                    target);
+
+            NavigateToInternalChapter(
+                chapterPath,
+                fragment);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.ToString(),
+                "Belső EPUB link hiba");
+        }
+    }
+
+
+    // =========================================================
+    // BELSŐ FEJEZET MEGKERESÉSE
+    // =========================================================
+
+    private void NavigateToInternalChapter(
+        string chapterPath,
+        string fragment)
+    {
+        if (BookList.SelectedItem
+            is not Book book)
+        {
+            return;
+        }
+
+        var normalizedTarget =
+            NormalizeChapterPath(
+                chapterPath);
+
+        var chapter =
+            book.Chapters.FirstOrDefault(
+                c =>
+                    string.Equals(
+                        NormalizeChapterPath(
+                            c.FilePath),
+                        normalizedTarget,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        NormalizeChapterPath(
+                            c.Href),
+                        normalizedTarget,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        Path.GetFileName(
+                            c.FilePath),
+                        Path.GetFileName(
+                            normalizedTarget),
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (chapter == null)
+        {
+            return;
+        }
+
+        pendingFragment =
+            fragment;
+
+        ChapterList.SelectedItem =
+            chapter;
+
+        ChapterList.ScrollIntoView(
+            chapter);
+
+        ShowChapter(
+            chapter);
+    }
+
+
+    // =========================================================
+    // FEJEZET BETÖLTÉSE UTÁNI UGRÁS
+    // =========================================================
+
+    private async void ContentViewer_NavigationCompleted(
+        object? sender,
+        CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess)
+            return;
+
+        if (string.IsNullOrWhiteSpace(
+                pendingFragment))
+        {
+            return;
+        }
+
+        var fragment =
+            pendingFragment;
+
+        pendingFragment =
+            null;
+
+        try
+        {
+            var escaped =
+                EscapeJavaScriptString(
+                    fragment);
+
+            var script =
+                "(function() {" +
+                "const element = " +
+                "document.getElementById('" +
+                escaped +
+                "') || " +
+                "document.getElementsByName('" +
+                escaped +
+                "')[0];" +
+                "if (element) {" +
+                "element.scrollIntoView({" +
+                "behavior: 'smooth'," +
+                "block: 'start'" +
+                "});" +
+                "}" +
+                "})();";
+
+            await contentViewer.ExecuteScriptAsync(
+                script);
+        }
+        catch
+        {
+            // Ha a célpont nem található,
+            // nem állítjuk le az olvasót.
+        }
+    }
+
+
+    // =========================================================
+    // JAVASCRIPT STRING ESCAPELÉSE
+    // =========================================================
+
+    private static string EscapeJavaScriptString(
+        string value)
+    {
+        return value
+            .Replace("\\", "\\\\")
+            .Replace("'", "\\'")
+            .Replace("\"", "\\\"")
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n");
+    }
+
+
+    // =========================================================
+    // EPUB ÚTVONAL NORMALIZÁLÁSA
+    // =========================================================
+
+    private static string NormalizeChapterPath(
+        string? path)
+    {
+        if (string.IsNullOrWhiteSpace(
+                path))
+        {
+            return string.Empty;
+        }
+
+        path =
+            path
+                .Replace("\\", "/")
+                .Trim();
+
+        var fragmentIndex =
+            path.IndexOf('#');
+
+        if (fragmentIndex >= 0)
+        {
+            path =
+                path[..fragmentIndex];
+        }
+
+        path =
+            Uri.UnescapeDataString(
+                path);
+
+        var parts =
+            path.Split(
+                '/',
+                StringSplitOptions.RemoveEmptyEntries);
+
+        var result =
+            new List<string>();
+
+        foreach (var part in parts)
+        {
+            if (part == ".")
+                continue;
+
+            if (part == "..")
+            {
+                if (result.Count > 0)
+                    result.RemoveAt(
+                        result.Count - 1);
+
+                continue;
+            }
+
+            result.Add(
+                part);
+        }
+
+        return string.Join(
+            "/",
+            result);
     }
 }
