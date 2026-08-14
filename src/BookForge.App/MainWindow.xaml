@@ -13,6 +13,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- FEJLÉC -->
 
         <StackPanel Grid.Row="0">
 
@@ -20,7 +21,6 @@
                 Text="📚 BookForge"
                 FontSize="32"
                 FontWeight="Bold"/>
-
 
             <Button
                 Content="📂 EPUB hozzáadása"
@@ -33,6 +33,7 @@
         </StackPanel>
 
 
+        <!-- FŐTERÜLET -->
 
         <Grid Grid.Row="1">
 
@@ -44,8 +45,7 @@
             </Grid.ColumnDefinitions>
 
 
-
-            <!-- Könyvtár -->
+            <!-- KÖNYVTÁR -->
 
             <GroupBox
                 Header="Könyvtár"
@@ -60,7 +60,6 @@
                         Height="35"
                         Margin="5"
                         Click="DeleteBook_Click"/>
-
 
                     <ListView
                         x:Name="BookList"
@@ -93,8 +92,7 @@
             </GroupBox>
 
 
-
-            <!-- Könyv adatok + borító -->
+            <!-- KÖNYV ADATOK -->
 
             <GroupBox
                 Header="Könyv adatok"
@@ -107,7 +105,6 @@
                         Margin="10"
                         HorizontalAlignment="Center">
 
-
                         <Image
                             x:Name="CoverImageBox"
                             Width="200"
@@ -116,16 +113,12 @@
                             HorizontalAlignment="Center"
                             Margin="0,10,0,20"/>
 
-
-
                         <TextBlock
                             Text="Cím:"
                             FontWeight="Bold"/>
 
                         <TextBlock
                             x:Name="BookTitleText"/>
-
-
 
                         <TextBlock
                             Text="Szerző:"
@@ -135,8 +128,6 @@
                         <TextBlock
                             x:Name="BookAuthorText"/>
 
-
-
                         <TextBlock
                             Text="Nyelv:"
                             FontWeight="Bold"
@@ -144,8 +135,6 @@
 
                         <TextBlock
                             x:Name="BookLanguageText"/>
-
-
 
                         <TextBlock
                             Text="Hozzáadva:"
@@ -155,7 +144,6 @@
                         <TextBlock
                             x:Name="BookDateText"/>
 
-
                     </StackPanel>
 
                 </ScrollViewer>
@@ -163,8 +151,7 @@
             </GroupBox>
 
 
-
-            <!-- Fejezetek -->
+            <!-- FEJEZETEK -->
 
             <GroupBox
                 Header="Fejezetek"
@@ -193,38 +180,17 @@
             </GroupBox>
 
 
-
-            <!-- Olvasó -->
+            <!-- OLVASÓ -->
 
             <GroupBox
                 Header="Olvasó"
                 Grid.Column="3">
 
-                <ScrollViewer>
-
-                    <StackPanel Margin="15">
-
-                        <TextBlock
-                            x:Name="ChapterTitleText"
-                            FontSize="22"
-                            FontWeight="Bold"
-                            Margin="0,0,0,15"/>
-
-
-                        <TextBlock
-                            x:Name="ContentText"
-                            Text="Válassz ki egy fejezetet"
-                            TextWrapping="Wrap"
-                            FontSize="16"/>
-                        <Grid
-    x:Name="ReaderHost"
-    MinHeight="500"/>
-                    </StackPanel>
-
-                </ScrollViewer>
+                <Grid
+                    x:Name="ReaderHost"
+                    Margin="5"/>
 
             </GroupBox>
-
 
         </Grid>
 

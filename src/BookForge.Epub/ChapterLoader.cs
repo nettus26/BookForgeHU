@@ -1,5 +1,4 @@
 using System;
-using System.Net;
 using System.Text.RegularExpressions;
 using BookForge.Core.Models;
 
@@ -12,24 +11,43 @@ public class ChapterLoader
         string htmlContent,
         int order)
     {
-        var cleanText = RemoveHtml(htmlContent);
+        var cleanText =
+            RemoveHtml(htmlContent);
+
+        var chapterTitle =
+            title;
+
+        // Ha nincs értelmes TOC-cím,
+        // megpróbáljuk az EPUB HTML-ből
+        // kinyerni a fejezet címét.
+        if (string.IsNullOrWhiteSpace(chapterTitle)
+            ||
+            chapterTitle.StartsWith(
+                "Chapter ",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            chapterTitle =
+                FindChapterTitle(
+                    htmlContent,
+                    chapterTitle);
+        }
 
         return new Chapter
         {
-            Title = title.StartsWith(
-                "Chapter ",
-                StringComparison.OrdinalIgnoreCase)
-                ? FindChapterTitle(htmlContent, title)
-                : title,
+            Title = chapterTitle,
 
             Order = order,
 
             Content = cleanText,
 
-            // AZ EREDETI EPUB HTML-TARTALOM
+            // FONTOS:
+            // Nem építünk új HTML-t a fejezet köré.
+            // Az EPUB eredeti HTML-je kerül
+            // közvetlenül az olvasóba.
             HtmlContent = htmlContent,
 
-            WordCount = CountWords(cleanText),
+            WordCount =
+                CountWords(cleanText),
 
             IsRead = false,
 
@@ -37,28 +55,36 @@ public class ChapterLoader
         };
     }
 
-    private string RemoveHtml(string html)
+
+    private string RemoveHtml(
+        string html)
     {
         if (string.IsNullOrWhiteSpace(html))
             return string.Empty;
 
-        var text = Regex.Replace(
-            html,
-            "<.*?>",
-            string.Empty,
-            RegexOptions.Singleline);
+        var text =
+            Regex.Replace(
+                html,
+                "<.*?>",
+                string.Empty,
+                RegexOptions.Singleline);
 
-        text = WebUtility.HtmlDecode(text);
+        text =
+            System.Net.WebUtility
+                .HtmlDecode(text);
 
-        text = Regex.Replace(
-            text,
-            @"\s+",
-            " ");
+        text =
+            Regex.Replace(
+                text,
+                @"\s+",
+                " ");
 
         return text.Trim();
     }
 
-    private int CountWords(string text)
+
+    private int CountWords(
+        string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return 0;
@@ -70,6 +96,7 @@ public class ChapterLoader
             .Length;
     }
 
+
     private string FindChapterTitle(
         string html,
         string fallbackTitle)
@@ -77,30 +104,29 @@ public class ChapterLoader
         if (string.IsNullOrWhiteSpace(html))
             return fallbackTitle;
 
-        var match = Regex.Match(
-            html,
-            @"<h[1-3][^>]*>(.*?)</h[1-3]>",
-            RegexOptions.IgnoreCase |
-            RegexOptions.Singleline);
+        var match =
+            Regex.Match(
+                html,
+                @"<h[1-3][^>]*>(.*?)</h[1-3]>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
 
         if (match.Success)
         {
-            var chapterTitle =
+            var extracted =
                 Regex.Replace(
                     match.Groups[1].Value,
                     "<.*?>",
                     string.Empty,
                     RegexOptions.Singleline);
 
-            chapterTitle =
-                WebUtility.HtmlDecode(
-                    chapterTitle).Trim();
+            extracted =
+                System.Net.WebUtility
+                    .HtmlDecode(extracted)
+                    .Trim();
 
-            if (!string.IsNullOrWhiteSpace(
-                chapterTitle))
-            {
-                return chapterTitle;
-            }
+            if (!string.IsNullOrWhiteSpace(extracted))
+                return extracted;
         }
 
         return fallbackTitle;

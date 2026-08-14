@@ -52,9 +52,41 @@ public partial class MainWindow : Window
             contentViewer.NavigateToString("""
                 <!DOCTYPE html>
                 <html>
-                <body style="font-family: Georgia, serif; margin: 30px;">
+                <head>
+                    <meta charset="utf-8">
+                    <style>
+                        body {
+                            font-family: Georgia, serif;
+                            font-size: 20px;
+                            line-height: 1.7;
+                            margin: 30px;
+                            color: #222;
+                            background: white;
+                        }
+
+                        h1 {
+                            font-size: 32px;
+                        }
+
+                        h2 {
+                            font-size: 26px;
+                        }
+
+                        p {
+                            margin-bottom: 16px;
+                        }
+
+                        img {
+                            max-width: 100%;
+                            height: auto;
+                        }
+                    </style>
+                </head>
+
+                <body>
                     <p>Válassz ki egy fejezetet.</p>
                 </body>
+
                 </html>
                 """);
         }
@@ -155,25 +187,12 @@ public partial class MainWindow : Window
 
                 ChapterList.Items.Clear();
 
-                ContentText.Text =
-                    "Válassz ki egy fejezetet";
-
-                ChapterTitleText.Text = "";
-
-                BookTitleText.Text = "";
-
-                BookAuthorText.Text = "";
-
-                BookLanguageText.Text = "";
-
-                BookDateText.Text = "";
-
                 CoverImageBox.Source = null;
 
                 contentViewer.NavigateToString("""
                     <!DOCTYPE html>
                     <html>
-                    <body>
+                    <body style="font-family: Georgia, serif; margin: 30px;">
                         <p>Válassz ki egy fejezetet.</p>
                     </body>
                     </html>
@@ -261,19 +280,6 @@ public partial class MainWindow : Window
     {
         if (ChapterList.SelectedItem is Chapter chapter)
         {
-            ChapterTitleText.Text =
-                chapter.Title;
-
-            ContentText.Text =
-                chapter.Content;
-
-
-            MessageBox.Show(
-                $"Fejezet: {chapter.Title}\n\n" +
-                $"HtmlContent hossza: {chapter.HtmlContent?.Length ?? 0} karakter",
-                "EPUB ellenőrzés");
-
-
             if (!string.IsNullOrWhiteSpace(
                 chapter.HtmlContent))
             {
