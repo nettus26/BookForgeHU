@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 using BookForge.Core.Models;
 using BookForge.Services;
 using BookForge.Epub;
@@ -78,10 +78,6 @@ public partial class MainWindow : Window
             new CoverService();
 
 
-        // =====================================================
-        // OLVASÁSI POZÍCIÓ IDŐZÍTŐ
-        // =====================================================
-
         readingPositionTimer =
             new DispatcherTimer();
 
@@ -91,10 +87,6 @@ public partial class MainWindow : Window
         readingPositionTimer.Tick +=
             ReadingPositionTimer_Tick;
 
-
-        // =====================================================
-        // WEBVIEW2 ESEMÉNYEK
-        // =====================================================
 
         contentViewer.NavigationStarting +=
             ContentViewer_NavigationStarting;
@@ -311,6 +303,8 @@ public partial class MainWindow : Window
         {
             try
             {
+                Book bookToLoad;
+
                 if (File.Exists(
                     savedBook.FilePath))
                 {
@@ -330,20 +324,20 @@ public partial class MainWindow : Window
                     fullBook.LastScrollPosition =
                         savedBook.LastScrollPosition;
 
-                    books.Add(
-                        fullBook);
-
-                    BookList.Items.Add(
-                        fullBook);
+                    bookToLoad =
+                        fullBook;
                 }
                 else
                 {
-                    books.Add(
-                        savedBook);
-
-                    BookList.Items.Add(
-                        savedBook);
+                    bookToLoad =
+                        savedBook;
                 }
+
+                books.Add(
+                    bookToLoad);
+
+                BookList.Items.Add(
+                    bookToLoad);
             }
             catch
             {
@@ -384,6 +378,12 @@ public partial class MainWindow : Window
                     book);
 
                 BookList.Items.Add(
+                    book);
+
+                BookList.SelectedItem =
+                    book;
+
+                BookList.ScrollIntoView(
                     book);
             }
             catch (Exception ex)
@@ -426,6 +426,9 @@ public partial class MainWindow : Window
                 BookList.Items.Remove(
                     book);
 
+                ChapterList.ItemsSource =
+                    null;
+
                 ChapterList.Items.Clear();
 
                 CoverImageBox.Source =
@@ -453,43 +456,83 @@ public partial class MainWindow : Window
         object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (BookList.SelectedItem is Book book)
+        if (BookList.SelectedItem is not Book book)
         {
-            SaveReadingPosition();
-
-            currentBook =
-                book;
-
-            currentChapter =
-                null;
-
-            BookTitleText.Text =
-                book.Title;
-
-            BookAuthorText.Text =
-                book.Author;
-
-            BookLanguageText.Text =
-                book.Language;
-
-            BookDateText.Text =
-                book.CreatedDate.ToString(
-                    "yyyy.MM.dd.");
-
-            LoadCover(
-                book);
-
-            ChapterList.Items.Clear();
-
-            foreach (var chapter in book.Chapters)
-            {
-                ChapterList.Items.Add(
-                    chapter);
-            }
-
-            RestoreLastReadingPosition(
-                book);
+            return;
         }
+
+        SaveReadingPosition();
+
+        currentBook =
+            book;
+
+        currentChapter =
+            null;
+
+        BookTitleText.Text =
+            book.Title;
+
+        BookAuthorText.Text =
+            book.Author;
+
+        BookLanguageText.Text =
+            book.Language;
+
+        BookDateText.Text =
+            book.CreatedDate.ToString(
+                "yyyy.MM.dd.");
+
+        LoadCover(
+            book);
+
+
+        // =====================================================
+        // DIAGNOSZTIKA
+        // =====================================================
+
+        MessageBox.Show(
+            $"A kiválasztott könyv fejezeteinek száma: {book.Chapters.Count}",
+            "BookForge diagnosztika");
+
+
+        // =====================================================
+        // FEJEZETLISTA
+        // =====================================================
+
+        LoadChapterList(
+            book);
+
+        RestoreLastReadingPosition(
+            book);
+    }
+
+
+    // =========================================================
+    // FEJEZETLISTA BETÖLTÉSE
+    // =========================================================
+
+    private void LoadChapterList(
+        Book book)
+    {
+        ChapterList.ItemsSource =
+            null;
+
+        ChapterList.Items.Clear();
+
+        if (book.Chapters == null ||
+            book.Chapters.Count == 0)
+        {
+            return;
+        }
+
+        var chapters =
+            book.Chapters
+                .OrderBy(
+                    c => c.Order)
+                .ToList();
+
+        ChapterList.ItemsSource =
+            chapters;
     }
 
 
@@ -722,8 +765,7 @@ public partial class MainWindow : Window
 
     private void RefreshCurrentChapter()
     {
-        if (ChapterList.SelectedItem
-            is Chapter chapter)
+        if (ChapterList.SelectedItem is Chapter chapter)
         {
             ShowChapter(
                 chapter);
@@ -774,10 +816,6 @@ public partial class MainWindow : Window
     {
         try
         {
-            // FONTOS:
-            // Induláskor a contentViewer még null lehet,
-            // mert a XAML eseményei előbb lefuthatnak.
-
             if (contentViewer == null ||
                 contentViewer.CoreWebView2 == null)
             {
@@ -894,7 +932,9 @@ public partial class MainWindow : Window
 
             var cleaned =
                 json.Trim('"')
-                    .Replace("\\\"", "\"");
+                    .Replace(
+                        "\\\"",
+                        "\"");
 
             using var document =
                 System.Text.Json.JsonDocument.Parse(
@@ -1125,11 +1165,6 @@ public partial class MainWindow : Window
 
             return;
         }
-
-
-        // =====================================================
-        // MENTETT POZÍCIÓ VISSZAÁLLÍTÁSA
-        // =====================================================
 
         if (restoringReadingPosition)
         {
