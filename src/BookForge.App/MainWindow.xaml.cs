@@ -49,46 +49,9 @@ public partial class MainWindow : Window
         {
             await contentViewer.EnsureCoreWebView2Async();
 
-            contentViewer.NavigateToString("""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8">
-                    <style>
-                        body {
-                            font-family: Georgia, serif;
-                            font-size: 20px;
-                            line-height: 1.7;
-                            margin: 30px;
-                            color: #222;
-                            background: white;
-                        }
-
-                        h1 {
-                            font-size: 32px;
-                        }
-
-                        h2 {
-                            font-size: 26px;
-                        }
-
-                        p {
-                            margin-bottom: 16px;
-                        }
-
-                        img {
-                            max-width: 100%;
-                            height: auto;
-                        }
-                    </style>
-                </head>
-
-                <body>
-                    <p>Válassz ki egy fejezetet.</p>
-                </body>
-
-                </html>
-                """);
+            contentViewer.NavigateToString(
+                CreateReaderHtml(
+                    "<p>Válassz ki egy fejezetet.</p>"));
         }
         catch (Exception ex)
         {
@@ -99,37 +62,149 @@ public partial class MainWindow : Window
     }
 
 
+    private string CreateReaderHtml(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            html =
+                "<p>Válassz ki egy fejezetet.</p>";
+        }
+
+        var style = """
+            <style>
+                html {
+                    overflow-x: hidden;
+                }
+
+                body {
+                    font-family: Georgia, serif;
+                    font-size: 20px;
+                    line-height: 1.7;
+                    margin: 30px;
+                    color: #222;
+                    background: white;
+                    overflow-x: hidden;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+
+                h1 {
+                    font-size: 32px;
+                    margin-top: 0;
+                    margin-bottom: 20px;
+                }
+
+                h2 {
+                    font-size: 26px;
+                    margin-top: 24px;
+                    margin-bottom: 16px;
+                }
+
+                h3 {
+                    font-size: 23px;
+                    margin-top: 20px;
+                    margin-bottom: 14px;
+                }
+
+                p {
+                    margin-top: 0;
+                    margin-bottom: 16px;
+                }
+
+                img {
+                    display: block;
+                    max-width: 100% !important;
+                    width: auto !important;
+                    height: auto !important;
+                    box-sizing: border-box;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+
+                table {
+                    max-width: 100%;
+                    width: auto;
+                    box-sizing: border-box;
+                }
+
+                pre,
+                code {
+                    max-width: 100%;
+                    white-space: pre-wrap;
+                    overflow-wrap: break-word;
+                }
+
+                blockquote {
+                    margin-left: 20px;
+                    margin-right: 20px;
+                }
+            </style>
+            """;
+
+        if (html.Contains(
+                "</head>",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return
+                html.Replace(
+                    "</head>",
+                    style + "</head>",
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        return $"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                {style}
+            </head>
+            <body>
+                {html}
+            </body>
+            </html>
+            """;
+    }
+
+
     private void LoadLibrary()
     {
-        var savedBooks = library.GetBooks();
+        var savedBooks =
+            library.GetBooks();
 
         foreach (var savedBook in savedBooks)
         {
             try
             {
-                if (File.Exists(savedBook.FilePath))
+                if (File.Exists(
+                        savedBook.FilePath))
                 {
-                    var reader = new EpubReader();
+                    var reader =
+                        new EpubReader();
 
                     var fullBook =
-                        reader.Load(savedBook.FilePath);
+                        reader.Load(
+                            savedBook.FilePath);
 
                     books.Add(fullBook);
 
-                    BookList.Items.Add(fullBook);
+                    BookList.Items.Add(
+                        fullBook);
                 }
                 else
                 {
                     books.Add(savedBook);
 
-                    BookList.Items.Add(savedBook);
+                    BookList.Items.Add(
+                        savedBook);
                 }
             }
             catch
             {
                 books.Add(savedBook);
 
-                BookList.Items.Add(savedBook);
+                BookList.Items.Add(
+                    savedBook);
             }
         }
     }
@@ -139,17 +214,20 @@ public partial class MainWindow : Window
         object sender,
         RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
-        {
-            Filter = "EPUB könyv (*.epub)|*.epub"
-        };
+        var dialog =
+            new OpenFileDialog
+            {
+                Filter =
+                    "EPUB könyv (*.epub)|*.epub"
+            };
 
         if (dialog.ShowDialog() == true)
         {
             try
             {
                 var book =
-                    importer.ImportEpub(dialog.FileName);
+                    importer.ImportEpub(
+                        dialog.FileName);
 
                 books.Add(book);
 
@@ -177,7 +255,8 @@ public partial class MainWindow : Window
                     "Könyv törlése",
                     MessageBoxButton.YesNo);
 
-            if (result == MessageBoxResult.Yes)
+            if (result ==
+                MessageBoxResult.Yes)
             {
                 library.RemoveBook(book);
 
@@ -189,14 +268,9 @@ public partial class MainWindow : Window
 
                 CoverImageBox.Source = null;
 
-                contentViewer.NavigateToString("""
-                    <!DOCTYPE html>
-                    <html>
-                    <body style="font-family: Georgia, serif; margin: 30px;">
-                        <p>Válassz ki egy fejezetet.</p>
-                    </body>
-                    </html>
-                    """);
+                contentViewer.NavigateToString(
+                    CreateReaderHtml(
+                        "<p>Válassz ki egy fejezetet.</p>"));
             }
         }
     }
@@ -227,7 +301,8 @@ public partial class MainWindow : Window
 
             foreach (var chapter in book.Chapters)
             {
-                ChapterList.Items.Add(chapter);
+                ChapterList.Items.Add(
+                    chapter);
             }
         }
     }
@@ -237,16 +312,20 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (!string.IsNullOrWhiteSpace(book.CoverImage)
+            if (!string.IsNullOrWhiteSpace(
+                    book.CoverImage)
                 &&
-                File.Exists(book.CoverImage))
+                File.Exists(
+                    book.CoverImage))
             {
-                var image = new BitmapImage();
+                var image =
+                    new BitmapImage();
 
                 image.BeginInit();
 
                 image.UriSource =
-                    new Uri(book.CoverImage);
+                    new Uri(
+                        book.CoverImage);
 
                 image.CacheOption =
                     BitmapCacheOption.OnLoad;
@@ -281,12 +360,16 @@ public partial class MainWindow : Window
         if (ChapterList.SelectedItem is Chapter chapter)
         {
             if (!string.IsNullOrWhiteSpace(
-                chapter.HtmlContent))
+                    chapter.HtmlContent))
             {
                 try
                 {
+                    var readerHtml =
+                        CreateReaderHtml(
+                            chapter.HtmlContent);
+
                     contentViewer.NavigateToString(
-                        chapter.HtmlContent);
+                        readerHtml);
                 }
                 catch (Exception ex)
                 {

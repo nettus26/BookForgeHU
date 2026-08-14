@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
@@ -57,27 +59,15 @@ public class EpubReaderV2 : IEpubReader
 
         book.FilePath = filePath;
 
-        // ============================
-        // MANIFEST
-        // ============================
-
         var manifestParser = new ManifestParser();
 
         var manifest =
             manifestParser.Parse(contentXml);
 
-        // ============================
-        // SPINE
-        // ============================
-
         var spineParser = new SpineParser();
 
         var spine =
             spineParser.Parse(contentXml);
-
-        // ============================
-        // BORÍTÓ
-        // ============================
 
         book.CoverImage =
             SaveCover(
@@ -86,20 +76,12 @@ public class EpubReaderV2 : IEpubReader
                 manifest,
                 contentPath);
 
-        // ============================
-        // TARTALOMJEGYZÉK
-        // ============================
-
         var toc =
             LoadTableOfContents(
                 archive,
                 contentXml,
                 manifest,
                 contentPath);
-
-        // ============================
-        // FEJEZETEK
-        // ============================
 
         LoadChapters(
             archive,
@@ -135,8 +117,8 @@ public class EpubReaderV2 : IEpubReader
         foreach (var id in spine)
         {
             if (!manifest.TryGetValue(
-                id,
-                out var href)
+                    id,
+                    out var href)
                 ||
                 string.IsNullOrWhiteSpace(href))
             {
@@ -162,31 +144,21 @@ public class EpubReaderV2 : IEpubReader
                    new StreamReader(
                        chapterEntry.Open()))
             {
-                html =
-                    reader.ReadToEnd();
+                html = reader.ReadToEnd();
             }
 
-            // ============================
-            // DIAGNOSZTIKA
-            // ============================
+            // EPUB KÉPEK BEÁGYAZÁSA
+            html =
+                EmbedImages(
+                    html,
+                    chapterPath,
+                    archive);
 
             Debug.WriteLine(
-                $"EPUB TESZT | Fejezet: {chapterPath}");
+                $"EPUB | Fejezet: {chapterPath}");
 
             Debug.WriteLine(
-                $"EPUB TESZT | HTML hossz: {html.Length}");
-
-            if (!string.IsNullOrWhiteSpace(html))
-            {
-                Debug.WriteLine(
-                    $"EPUB TESZT | HTML eleje: " +
-                    html[..Math.Min(200, html.Length)]);
-            }
-            else
-            {
-                Debug.WriteLine(
-                    "EPUB TESZT | A HTML ÜRES!");
-            }
+                $"EPUB | HTML hossz: {html.Length}");
 
             var title =
                 FindTocTitle(
@@ -205,10 +177,6 @@ public class EpubReaderV2 : IEpubReader
                     html,
                     order);
 
-            Debug.WriteLine(
-                $"EPUB TESZT | Chapter.HtmlContent hossz: " +
-                $"{chapter.HtmlContent?.Length ?? 0}");
-
             chapter.FilePath =
                 chapterPath;
 
@@ -220,6 +188,128 @@ public class EpubReaderV2 : IEpubReader
 
             order++;
         }
+    }
+
+
+    private static string EmbedImages(
+        string html,
+        string chapterPath,
+        ZipArchive archive)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return html;
+
+        var chapterDirectory =
+            GetDirectory(chapterPath);
+
+        var pattern =
+            @"(<img\b[^>]*?\bsrc\s*=\s*[""'])([^""']+)([""'])";
+
+        return Regex.Replace(
+            html,
+            pattern,
+            match =>
+            {
+                var prefix =
+                    match.Groups[1].Value;
+
+                var imageHref =
+                    match.Groups[2].Value;
+
+                var suffix =
+                    match.Groups[3].Value;
+
+                if (imageHref.StartsWith(
+                        "data:",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                if (imageHref.StartsWith(
+                        "http://",
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    imageHref.StartsWith(
+                        "https://",
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    imageHref.StartsWith(
+                        "//",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                try
+                {
+                    var imagePath =
+                        ResolvePath(
+                            chapterDirectory,
+                            imageHref);
+
+                    var entry =
+                        FindEntry(
+                            archive,
+                            imagePath);
+
+                    if (entry == null)
+                        return match.Value;
+
+                    var extension =
+                        Path.GetExtension(
+                            entry.FullName);
+
+                    var mimeType =
+                        GetImageMimeType(extension);
+
+                    if (mimeType == null)
+                        return match.Value;
+
+                    using var stream =
+                        entry.Open();
+
+                    using var memory =
+                        new MemoryStream();
+
+                    stream.CopyTo(memory);
+
+                    var base64 =
+                        Convert.ToBase64String(
+                            memory.ToArray());
+
+                    var dataUri =
+                        $"data:{mimeType};base64,{base64}";
+
+                    return
+                        prefix +
+                        dataUri +
+                        suffix;
+                }
+                catch
+                {
+                    return match.Value;
+                }
+            },
+            RegexOptions.IgnoreCase |
+            RegexOptions.Singleline);
+    }
+
+
+    private static string? GetImageMimeType(
+        string extension)
+    {
+        return extension.ToLowerInvariant() switch
+        {
+            ".jpg" => "image/jpeg",
+            ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".svg" => "image/svg+xml",
+            ".bmp" => "image/bmp",
+            _ => null
+        };
     }
 
 
@@ -242,8 +332,6 @@ public class EpubReaderV2 : IEpubReader
 
         var contentDirectory =
             GetDirectory(contentPath);
-
-        // EPUB 3: nav
 
         var navItem =
             document
@@ -298,8 +386,6 @@ public class EpubReaderV2 : IEpubReader
                 }
             }
         }
-
-        // EPUB 2: NCX
 
         if (result.Count == 0)
         {
@@ -396,8 +482,6 @@ public class EpubReaderV2 : IEpubReader
 
         string? coverHref = null;
 
-        // EPUB 3
-
         var coverItem =
             document
                 .Descendants(opf + "item")
@@ -417,8 +501,6 @@ public class EpubReaderV2 : IEpubReader
             coverHref =
                 coverItem.Attribute("href")?.Value;
         }
-
-        // EPUB 2
 
         if (string.IsNullOrWhiteSpace(coverHref))
         {
@@ -540,8 +622,8 @@ public class EpubReaderV2 : IEpubReader
         string chapterPath)
     {
         if (toc.TryGetValue(
-            chapterPath,
-            out var exact))
+                chapterPath,
+                out var exact))
         {
             return exact;
         }
@@ -560,9 +642,7 @@ public class EpubReaderV2 : IEpubReader
                         StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrWhiteSpace(match.Value))
-            {
                 return match.Value;
-            }
         }
 
         return null;
@@ -593,6 +673,13 @@ public class EpubReaderV2 : IEpubReader
             href
                 .Replace("\\", "/")
                 .Trim();
+
+        var queryIndex =
+            href.IndexOf('#');
+
+        if (queryIndex >= 0)
+            href =
+                href[..queryIndex];
 
         href =
             Uri.UnescapeDataString(
@@ -682,6 +769,14 @@ public class EpubReaderV2 : IEpubReader
             ||
             path.EndsWith(
                 ".gif",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            path.EndsWith(
+                ".svg",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            path.EndsWith(
+                ".bmp",
                 StringComparison.OrdinalIgnoreCase);
     }
 }
