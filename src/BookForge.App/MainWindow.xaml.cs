@@ -37,7 +37,7 @@ public partial class MainWindow : Window
 
     private string readerFontFamily = "Georgia";
 
-    private double readerLineSpacing = 1.7;
+    private double readerLineSpacing = 1.5;
 
     private bool darkMode = false;
 
@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private Chapter? currentChapter;
 
     private bool restoringReadingPosition = false;
+
+    private bool restoringReaderSettings = false;
 
 
     // =========================================================
@@ -330,6 +332,25 @@ public partial class MainWindow : Window
                     fullBook.LastScrollPosition =
                         savedBook.LastScrollPosition;
 
+                    fullBook.ReaderFontSize =
+                        savedBook.ReaderFontSize > 0
+                            ? savedBook.ReaderFontSize
+                            : 20;
+
+                    fullBook.ReaderFontFamily =
+                        string.IsNullOrWhiteSpace(
+                            savedBook.ReaderFontFamily)
+                            ? "Georgia"
+                            : savedBook.ReaderFontFamily;
+
+                    fullBook.ReaderLineSpacing =
+                        savedBook.ReaderLineSpacing > 0
+                            ? savedBook.ReaderLineSpacing
+                            : 1.5;
+
+                    fullBook.ReaderDarkMode =
+                        savedBook.ReaderDarkMode;
+
                     bookToLoad =
                         fullBook;
                 }
@@ -492,6 +513,9 @@ public partial class MainWindow : Window
         BookDateText.Text =
             book.CreatedDate.ToString(
                 "yyyy.MM.dd.");
+
+        ApplyBookReaderSettings(
+            book);
 
         LoadCover(
             book);
@@ -759,6 +783,8 @@ public partial class MainWindow : Window
     private void ShowChapter(
         Chapter chapter)
     {
+        StopReadingPositionTracking();
+
         if (string.IsNullOrWhiteSpace(
             chapter.HtmlContent))
         {
@@ -801,6 +827,96 @@ public partial class MainWindow : Window
 
 
     // =========================================================
+    // KÖNYV OLVASÓBEÁLLÍTÁSAINAK BETÖLTÉSE
+    // =========================================================
+
+    private void ApplyBookReaderSettings(
+        Book book)
+    {
+        restoringReaderSettings = true;
+
+        try
+        {
+            readerFontSize =
+                book.ReaderFontSize > 0
+                    ? book.ReaderFontSize
+                    : 20;
+
+            readerFontFamily =
+                string.IsNullOrWhiteSpace(
+                    book.ReaderFontFamily)
+                    ? "Georgia"
+                    : book.ReaderFontFamily;
+
+            readerLineSpacing =
+                book.ReaderLineSpacing > 0
+                    ? book.ReaderLineSpacing
+                    : 1.5;
+
+            darkMode =
+                book.ReaderDarkMode;
+
+            UpdateFontSizeDisplay();
+
+            SelectComboBoxItem(
+                FontFamilyComboBox,
+                readerFontFamily);
+
+            SelectComboBoxItem(
+                LineSpacingComboBox,
+                readerLineSpacing.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+
+            ThemeButton.Content =
+                darkMode
+                    ? "☀️ Világos"
+                    : "🌙 Sötét";
+        }
+        finally
+        {
+            restoringReaderSettings = false;
+        }
+    }
+
+    private static void SelectComboBoxItem(
+        System.Windows.Controls.ComboBox comboBox,
+        string value)
+    {
+        foreach (var item in comboBox.Items)
+        {
+            if (item is System.Windows.Controls.ComboBoxItem comboItem &&
+                string.Equals(
+                    comboItem.Content?.ToString(),
+                    value,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                comboBox.SelectedItem = comboItem;
+                return;
+            }
+        }
+    }
+
+    private void SaveCurrentReaderSettings()
+    {
+        if (restoringReaderSettings ||
+            currentBook == null)
+        {
+            return;
+        }
+
+        currentBook.ReaderFontSize = readerFontSize;
+        currentBook.ReaderFontFamily = readerFontFamily;
+        currentBook.ReaderLineSpacing = readerLineSpacing;
+        currentBook.ReaderDarkMode = darkMode;
+
+        library.UpdateReaderSettings(
+            currentBook,
+            readerFontSize,
+            readerFontFamily,
+            readerLineSpacing,
+            darkMode);
+    }
+    // =========================================================
     // A− BETŰMÉRET
     // =========================================================
 
@@ -820,6 +936,8 @@ public partial class MainWindow : Window
         UpdateFontSizeDisplay();
 
         RefreshCurrentChapter();
+
+        SaveCurrentReaderSettings();
     }
 
 
@@ -843,6 +961,8 @@ public partial class MainWindow : Window
         UpdateFontSizeDisplay();
 
         RefreshCurrentChapter();
+
+        SaveCurrentReaderSettings();
     }
 
 
@@ -869,6 +989,8 @@ public partial class MainWindow : Window
                     font;
 
                 RefreshCurrentChapter();
+
+                SaveCurrentReaderSettings();
             }
         }
     }
@@ -900,6 +1022,8 @@ public partial class MainWindow : Window
                     spacing;
 
                 RefreshCurrentChapter();
+
+                SaveCurrentReaderSettings();
             }
         }
     }
@@ -924,6 +1048,8 @@ public partial class MainWindow : Window
                 : "🌙 Sötét";
 
         RefreshCurrentChapter();
+
+        SaveCurrentReaderSettings();
     }
 
 
@@ -998,8 +1124,15 @@ public partial class MainWindow : Window
 
             var script =
                 "JSON.stringify({" +
-                "scrollY: window.scrollY," +
-                "scrollHeight: document.documentElement.scrollHeight," +
+                "scrollY: Math.max(" +
+                    "window.scrollY || 0," +
+                    "document.documentElement.scrollTop || 0," +
+                    "document.body ? document.body.scrollTop || 0 : 0" +
+                ")," +
+                "scrollHeight: Math.max(" +
+                    "document.documentElement.scrollHeight || 0," +
+                    "document.body ? document.body.scrollHeight || 0 : 0" +
+                ")," +
                 "clientHeight: document.documentElement.clientHeight" +
                 "})";
 
@@ -1059,8 +1192,15 @@ public partial class MainWindow : Window
 
             var script =
                 "JSON.stringify({" +
-                "scrollY: window.scrollY," +
-                "scrollHeight: document.documentElement.scrollHeight," +
+                "scrollY: Math.max(" +
+                    "window.scrollY || 0," +
+                    "document.documentElement.scrollTop || 0," +
+                    "document.body ? document.body.scrollTop || 0 : 0" +
+                ")," +
+                "scrollHeight: Math.max(" +
+                    "document.documentElement.scrollHeight || 0," +
+                    "document.body ? document.body.scrollHeight || 0 : 0" +
+                ")," +
                 "clientHeight: document.documentElement.clientHeight" +
                 "})";
 
@@ -1256,11 +1396,36 @@ public partial class MainWindow : Window
 
         try
         {
-            var script =
-                "window.scrollTo(0, " +
+            // A NavigateToString után a DOM már létrejött, de a hosszú
+            // szöveg magassága még egy rövid ideig változhat.
+            // Ezért várunk egy kicsit, majd több lépésben állítjuk vissza.
+            await System.Threading.Tasks.Task.Delay(100);
+
+            var positionText =
                 position.ToString(
-                    System.Globalization.CultureInfo.InvariantCulture) +
-                ");";
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+            var script =
+                "(function() {" +
+                "var y = " + positionText + ";" +
+                "window.scrollTo(0, y);" +
+                "if (document.documentElement) " +
+                    "document.documentElement.scrollTop = y;" +
+                "if (document.body) " +
+                    "document.body.scrollTop = y;" +
+                "requestAnimationFrame(function() {" +
+                    "window.scrollTo(0, y);" +
+                    "if (document.documentElement) " +
+                        "document.documentElement.scrollTop = y;" +
+                    "if (document.body) " +
+                        "document.body.scrollTop = y;" +
+                "});" +
+                "})();";
+
+            await contentViewer.ExecuteScriptAsync(
+                script);
+
+            await System.Threading.Tasks.Task.Delay(150);
 
             await contentViewer.ExecuteScriptAsync(
                 script);

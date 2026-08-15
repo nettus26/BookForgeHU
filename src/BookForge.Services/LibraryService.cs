@@ -51,7 +51,6 @@ public class LibraryService
         var books =
             GetBooks();
 
-        // Duplikáció ellenőrzés
         var exists =
             books.Any(b =>
                 b.Title == book.Title &&
@@ -191,6 +190,54 @@ public class LibraryService
             b =>
                 b.Title == book.Title &&
                 b.Author == book.Author);
+    }
+
+
+    // =========================================================
+    // OLVASÓ BEÁLLÍTÁSOK MENTÉSE
+    // =========================================================
+
+    public void UpdateReaderSettings(
+        Book book,
+        double fontSize,
+        string fontFamily,
+        double lineSpacing,
+        bool darkMode)
+    {
+        var books =
+            GetBooks();
+
+        var existing =
+            books.FirstOrDefault(
+                b =>
+                    b.Title == book.Title &&
+                    b.Author == book.Author);
+
+        if (existing == null)
+        {
+            return;
+        }
+
+        existing.ReaderFontSize =
+            fontSize;
+
+        existing.ReaderFontFamily =
+            string.IsNullOrWhiteSpace(fontFamily)
+                ? "Georgia"
+                : fontFamily;
+
+        existing.ReaderLineSpacing =
+            lineSpacing > 0
+                ? lineSpacing
+                : 1.5;
+
+        existing.ReaderDarkMode =
+            darkMode;
+
+        existing.LastOpened =
+            DateTime.Now;
+
+        Save(books);
     }
 
 
