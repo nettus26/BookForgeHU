@@ -242,6 +242,86 @@ public class LibraryService
 
 
     // =========================================================
+    // FEJEZET OLVASOTTKÉNT JELÖLÉSE
+    // =========================================================
+
+    public void MarkChapterAsRead(
+        Book book,
+        string chapterPath)
+    {
+        if (string.IsNullOrWhiteSpace(
+            chapterPath))
+        {
+            return;
+        }
+
+        var books =
+            GetBooks();
+
+        var existing =
+            books.FirstOrDefault(
+                b =>
+                    b.Title == book.Title &&
+                    b.Author == book.Author);
+
+        if (existing == null)
+        {
+            return;
+        }
+
+        var normalizedPath =
+            NormalizePath(
+                chapterPath);
+
+        var chapter =
+            existing.Chapters.FirstOrDefault(
+                c =>
+                    string.Equals(
+                        NormalizePath(c.FilePath),
+                        normalizedPath,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        NormalizePath(c.Href),
+                        normalizedPath,
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (chapter == null)
+        {
+            return;
+        }
+
+        chapter.IsRead =
+            true;
+
+        chapter.LastOpened =
+            DateTime.Now;
+
+        Save(books);
+    }
+
+
+    // =========================================================
+    // SEGÉD: EPUB ÚTVONAL NORMALIZÁLÁSA
+    // =========================================================
+
+    private static string NormalizePath(
+        string? path)
+    {
+        if (string.IsNullOrWhiteSpace(
+            path))
+        {
+            return string.Empty;
+        }
+
+        return path
+            .Replace("\\", "/")
+            .Trim()
+            .TrimStart('/');
+    }
+
+
+    // =========================================================
     // MENTÉS
     // =========================================================
 

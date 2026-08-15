@@ -351,6 +351,36 @@ public partial class MainWindow : Window
                     fullBook.ReaderDarkMode =
                         savedBook.ReaderDarkMode;
 
+                    // Az olvasottsági állapotok visszatöltése a mentett könyvből.
+                    if (fullBook.Chapters != null &&
+                        savedBook.Chapters != null)
+                    {
+                        foreach (var loadedChapter in fullBook.Chapters)
+                        {
+                            var savedChapter =
+                                savedBook.Chapters.FirstOrDefault(
+                                    c =>
+                                        string.Equals(
+                                            NormalizeChapterPath(c.FilePath),
+                                            NormalizeChapterPath(loadedChapter.FilePath),
+                                            StringComparison.OrdinalIgnoreCase)
+                                        ||
+                                        string.Equals(
+                                            NormalizeChapterPath(c.Href),
+                                            NormalizeChapterPath(loadedChapter.Href),
+                                            StringComparison.OrdinalIgnoreCase));
+
+                            if (savedChapter != null)
+                            {
+                                loadedChapter.IsRead =
+                                    savedChapter.IsRead;
+
+                                loadedChapter.LastOpened =
+                                    savedChapter.LastOpened;
+                            }
+                        }
+                    }
+
                     bookToLoad =
                         fullBook;
                 }
@@ -920,7 +950,7 @@ public partial class MainWindow : Window
     // A− BETŰMÉRET
     // =========================================================
 
-    private void DecreaseFontButton_Click(
+    private async void DecreaseFontButton_Click(
         object sender,
         RoutedEventArgs e)
     {
@@ -935,7 +965,7 @@ public partial class MainWindow : Window
 
         UpdateFontSizeDisplay();
 
-        RefreshCurrentChapter();
+        await ApplyReaderFontSettingsAsync();
 
         SaveCurrentReaderSettings();
     }
@@ -945,7 +975,7 @@ public partial class MainWindow : Window
     // A+ BETŰMÉRET
     // =========================================================
 
-    private void IncreaseFontButton_Click(
+    private async void IncreaseFontButton_Click(
         object sender,
         RoutedEventArgs e)
     {
@@ -960,9 +990,84 @@ public partial class MainWindow : Window
 
         UpdateFontSizeDisplay();
 
-        RefreshCurrentChapter();
+        await ApplyReaderFontSettingsAsync();
 
         SaveCurrentReaderSettings();
+    }
+
+
+    // =========================================================
+    // BETŰMÉRET KÖZVETLEN FRISSÍTÉSE A WEBVIEW2-BEN
+    // =========================================================
+
+    private async System.Threading.Tasks.Task
+        ApplyReaderFontSettingsAsync()
+    {
+        try
+        {
+            if (contentViewer == null ||
+                contentViewer.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            var fontSize =
+                readerFontSize.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+            var h1Size =
+                (readerFontSize * 1.6).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+            var h2Size =
+                (readerFontSize * 1.3).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+            var h3Size =
+                (readerFontSize * 1.15).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+            var script =
+                "(function() {" +
+                "var body = document.body;" +
+                "if (!body) return;" +
+
+                "body.style.setProperty('font-size', '" +
+                    fontSize +
+                    "px', 'important');" +
+
+                "document.querySelectorAll('p').forEach(function(el) {" +
+                    "el.style.setProperty('font-size', '" +
+                    fontSize +
+                    "px', 'important');" +
+                "});" +
+
+                "document.querySelectorAll('h1').forEach(function(el) {" +
+                    "el.style.setProperty('font-size', '" +
+                    h1Size +
+                    "px', 'important');" +
+                "});" +
+
+                "document.querySelectorAll('h2').forEach(function(el) {" +
+                    "el.style.setProperty('font-size', '" +
+                    h2Size +
+                    "px', 'important');" +
+                "});" +
+
+                "document.querySelectorAll('h3').forEach(function(el) {" +
+                    "el.style.setProperty('font-size', '" +
+                    h3Size +
+                    "px', 'important');" +
+                "});" +
+
+                "})();";
+
+            await contentViewer.ExecuteScriptAsync(
+                script);
+        }
+        catch
+        {
+        }
     }
 
 
@@ -988,10 +1093,55 @@ public partial class MainWindow : Window
                 readerFontFamily =
                     font;
 
-                RefreshCurrentChapter();
+                _ = ApplyReaderFontFamilyAsync();
 
                 SaveCurrentReaderSettings();
             }
+        }
+    }
+
+
+    // =========================================================
+    // BETŰTÍPUS KÖZVETLEN FRISSÍTÉSE A WEBVIEW2-BEN
+    // =========================================================
+
+    private async System.Threading.Tasks.Task
+        ApplyReaderFontFamilyAsync()
+    {
+        try
+        {
+            if (contentViewer == null ||
+                contentViewer.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            var fontFamily =
+                System.Text.Json.JsonSerializer.Serialize(
+                    readerFontFamily);
+
+            var script =
+                "(function() {" +
+                "var body = document.body;" +
+                "if (!body) return;" +
+
+                "body.style.setProperty('font-family', " +
+                    fontFamily +
+                    ", 'important');" +
+
+                "document.querySelectorAll('body *').forEach(function(el) {" +
+                    "el.style.setProperty('font-family', " +
+                        fontFamily +
+                        ", 'important');" +
+                "});" +
+
+                "})();";
+
+            await contentViewer.ExecuteScriptAsync(
+                script);
+        }
+        catch
+        {
         }
     }
 
@@ -1004,6 +1154,11 @@ public partial class MainWindow : Window
         object sender,
         System.Windows.Controls.SelectionChangedEventArgs e)
     {
+        if (restoringReaderSettings)
+        {
+            return;
+        }
+
         if (LineSpacingComboBox.SelectedItem
             is System.Windows.Controls.ComboBoxItem item)
         {
@@ -1021,10 +1176,55 @@ public partial class MainWindow : Window
                 readerLineSpacing =
                     spacing;
 
-                RefreshCurrentChapter();
+                _ = ApplyReaderLineSpacingAsync();
 
                 SaveCurrentReaderSettings();
             }
+        }
+    }
+
+
+    // =========================================================
+    // SORKÖZ KÖZVETLEN FRISSÍTÉSE A WEBVIEW2-BEN
+    // =========================================================
+
+    private async System.Threading.Tasks.Task
+        ApplyReaderLineSpacingAsync()
+    {
+        try
+        {
+            if (contentViewer == null ||
+                contentViewer.CoreWebView2 == null)
+            {
+                return;
+            }
+
+            var lineSpacing =
+                readerLineSpacing.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+            var script =
+                "(function() {" +
+                "var body = document.body;" +
+                "if (!body) return;" +
+
+                "body.style.setProperty('line-height', '" +
+                    lineSpacing +
+                    "', 'important');" +
+
+                "document.querySelectorAll('body *').forEach(function(el) {" +
+                    "el.style.setProperty('line-height', '" +
+                        lineSpacing +
+                        "', 'important');" +
+                "});" +
+
+                "})();";
+
+            await contentViewer.ExecuteScriptAsync(
+                script);
+        }
+        catch
+        {
         }
     }
 
@@ -1131,9 +1331,11 @@ public partial class MainWindow : Window
                 ")," +
                 "scrollHeight: Math.max(" +
                     "document.documentElement.scrollHeight || 0," +
-                    "document.body ? document.body.scrollHeight || 0 : 0" +
+                    "document.body ? document.body.scrollHeight || 0 : 0," +
+                    "document.documentElement.offsetHeight || 0," +
+                    "document.body ? document.body.offsetHeight || 0 : 0" +
                 ")," +
-                "clientHeight: document.documentElement.clientHeight" +
+                "clientHeight: window.innerHeight || document.documentElement.clientHeight" +
                 "})";
 
             var task =
@@ -1199,9 +1401,11 @@ public partial class MainWindow : Window
                 ")," +
                 "scrollHeight: Math.max(" +
                     "document.documentElement.scrollHeight || 0," +
-                    "document.body ? document.body.scrollHeight || 0 : 0" +
+                    "document.body ? document.body.scrollHeight || 0 : 0," +
+                    "document.documentElement.offsetHeight || 0," +
+                    "document.body ? document.body.offsetHeight || 0 : 0" +
                 ")," +
-                "clientHeight: document.documentElement.clientHeight" +
+                "clientHeight: window.innerHeight || document.documentElement.clientHeight" +
                 "})";
 
             var result =
@@ -1278,6 +1482,46 @@ public partial class MainWindow : Window
 
             currentBook.LastOpened =
                 DateTime.Now;
+
+            // Ha a felhasználó ténylegesen elérte a fejezet végét,
+            // jelöljük a fejezetet olvasottként.
+            if (root.TryGetProperty(
+                    "clientHeight",
+                    out var clientHeightElement) &&
+                root.TryGetProperty(
+                    "scrollHeight",
+                    out var scrollHeightElement))
+            {
+                var clientHeight =
+                    clientHeightElement.GetDouble();
+
+                var scrollHeight =
+                    scrollHeightElement.GetDouble();
+
+                var reachedEnd =
+                    scrollHeight > 0 &&
+                    clientHeight > 0 &&
+                    scrollY + clientHeight >= scrollHeight - 40;
+
+                if (reachedEnd &&
+                    !currentChapter.IsRead)
+                {
+                    library.MarkChapterAsRead(
+                        currentBook,
+                        chapterPath);
+
+                    currentChapter.IsRead =
+                        true;
+
+                    Dispatcher.Invoke(
+                        () =>
+                        {
+                            // Frissítjük a listát anélkül, hogy újra betöltenénk
+                            // a fejezetet, így a görgetési pozíció megmarad.
+                            ChapterList.Items.Refresh();
+                        });
+                }
+            }
         }
         catch
         {

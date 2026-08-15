@@ -190,10 +190,48 @@
 
                                 <DataTemplate>
 
-                                    <TextBlock
-                                        Text="{Binding Title}"
-                                        FontWeight="Bold"
-                                        Margin="5"/>
+                                    <StackPanel
+                                        Orientation="Horizontal"
+                                        Margin="5">
+
+                                        <TextBlock
+                                            Text="✓"
+                                            FontWeight="Bold"
+                                            Foreground="Green"
+                                            Margin="0,0,6,0">
+
+                                            <TextBlock.Style>
+                                                <Style
+                                                    TargetType="TextBlock">
+
+                                                    <Setter
+                                                        Property="Visibility"
+                                                        Value="Collapsed"/>
+
+                                                    <Style.Triggers>
+
+                                                        <DataTrigger
+                                                            Binding="{Binding IsRead}"
+                                                            Value="True">
+
+                                                            <Setter
+                                                                Property="Visibility"
+                                                                Value="Visible"/>
+
+                                                        </DataTrigger>
+
+                                                    </Style.Triggers>
+
+                                                </Style>
+                                            </TextBlock.Style>
+
+                                        </TextBlock>
+
+                                        <TextBlock
+                                            Text="{Binding Title}"
+                                            FontWeight="Bold"/>
+
+                                    </StackPanel>
 
                                 </DataTemplate>
 
