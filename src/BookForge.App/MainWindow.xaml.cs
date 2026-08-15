@@ -63,6 +63,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        UpdateFontSizeDisplay();
+
         contentViewer =
             new WebView2();
 
@@ -785,6 +787,20 @@ public partial class MainWindow : Window
 
 
     // =========================================================
+    // BETŰMÉRET KIJELZŐ FRISSÍTÉSE
+    // =========================================================
+
+    private void UpdateFontSizeDisplay()
+    {
+        if (FontSizeText != null)
+        {
+            FontSizeText.Text =
+                $"{readerFontSize:0} px";
+        }
+    }
+
+
+    // =========================================================
     // A− BETŰMÉRET
     // =========================================================
 
@@ -800,6 +816,8 @@ public partial class MainWindow : Window
         {
             readerFontSize = 12;
         }
+
+        UpdateFontSizeDisplay();
 
         RefreshCurrentChapter();
     }
@@ -821,6 +839,8 @@ public partial class MainWindow : Window
         {
             readerFontSize = 40;
         }
+
+        UpdateFontSizeDisplay();
 
         RefreshCurrentChapter();
     }
