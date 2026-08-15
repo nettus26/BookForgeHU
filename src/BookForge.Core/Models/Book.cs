@@ -12,7 +12,9 @@ public class Book
     public string Description { get; set; } = string.Empty;
 
 
-    // Könyv adatok
+    // =========================================================
+    // KÖNYV ADATOK
+    // =========================================================
 
     public string Language { get; set; } = "hu";
 
@@ -23,7 +25,9 @@ public class Book
     public string ISBN { get; set; } = string.Empty;
 
 
-    // Rendszer adatok
+    // =========================================================
+    // RENDSZER ADATOK
+    // =========================================================
 
     public DateTime CreatedDate { get; set; } = DateTime.Now;
 
@@ -46,4 +50,11 @@ public class Book
     // =========================================================
 
     public List<Chapter> Chapters { get; set; } = new();
+
+
+    // =========================================================
+    // TARTALOMJEGYZÉK
+    // =========================================================
+
+    public Dictionary<string, string> TableOfContents { get; set; } = new();
 }

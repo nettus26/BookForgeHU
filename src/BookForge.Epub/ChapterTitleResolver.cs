@@ -11,16 +11,64 @@ public class ChapterTitleResolver
         string fallbackTitle)
     {
         if (string.IsNullOrWhiteSpace(html))
+        {
             return fallbackTitle;
+        }
 
         // =========================================================
-        // 1. H1-H6 FEJEZETCÍM
+        // 1. SZÁMOZOTT FEJEZET
+        // =========================================================
+        //
+        // Az EPUB többféleképpen tárolhatja a fejezetszámot:
+        //
+        // <p>5</p>
+        // <p>EGÉSZ</p>
+        //
+        // vagy:
+        //
+        // <p><span>5</span></p>
+        // <p>EGÉSZ</p>
+        //
+        // Ezért nem a HTML szerkezetét, hanem az első két
+        // bekezdés megtisztított szövegét vizsgáljuk.
+        //
+
+        var paragraphs =
+            Regex.Matches(
+                html,
+                @"<p\b[^>]*>(.*?)</p>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        if (paragraphs.Count >= 2)
+        {
+            var firstText =
+                CleanText(
+                    paragraphs[0].Groups[1].Value);
+
+            var secondText =
+                CleanText(
+                    paragraphs[1].Groups[1].Value);
+
+            if (Regex.IsMatch(
+                    firstText,
+                    @"^\d{1,4}$") &&
+                !string.IsNullOrWhiteSpace(
+                    secondText) &&
+                secondText.Length <= 150)
+            {
+                return $"{firstText} {secondText}";
+            }
+        }
+
+        // =========================================================
+        // 2. H1-H3 CÍM
         // =========================================================
 
         var heading =
             Regex.Match(
                 html,
-                @"<h[1-6][^>]*>(.*?)</h[1-6]>",
+                @"<h[1-3]\b[^>]*>(.*?)</h[1-3]>",
                 RegexOptions.IgnoreCase |
                 RegexOptions.Singleline);
 
@@ -30,90 +78,20 @@ public class ChapterTitleResolver
                 CleanText(
                     heading.Groups[1].Value);
 
-            if (IsValidChapterTitle(
-                title,
-                fallbackTitle))
+            if (!string.IsNullOrWhiteSpace(title))
             {
                 return title;
             }
         }
 
-
         // =========================================================
-        // 2. GYAKORI EPUB FEJEZETCÍM OSZTÁLYOK
-        // =========================================================
-
-        var classHeading =
-            Regex.Match(
-                html,
-                @"<(?:div|p|span)[^>]*class\s*=\s*[""'][^""']*" +
-                @"(?:chapter|chapter-title|title|heading)" +
-                @"[^""']*[""'][^>]*>(.*?)</(?:div|p|span)>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        if (classHeading.Success)
-        {
-            var title =
-                CleanText(
-                    classHeading.Groups[1].Value);
-
-            if (IsValidChapterTitle(
-                title,
-                fallbackTitle))
-            {
-                return title;
-            }
-        }
-
-
-        // =========================================================
-        // 3. FEJEZETSZÁM + KÖVETKEZŐ RÖVID CÍM
-        // =========================================================
-
-        var blocks =
-            Regex.Matches(
-                html,
-                @"<(?:p|div|span)[^>]*>(.*?)</(?:p|div|span)>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        for (var i = 0; i < blocks.Count; i++)
-        {
-            var first =
-                CleanText(
-                    blocks[i].Groups[1].Value);
-
-            if (!IsChapterNumber(first))
-                continue;
-
-            if (i + 1 < blocks.Count)
-            {
-                var second =
-                    CleanText(
-                        blocks[i + 1].Groups[1].Value);
-
-                if (IsValidChapterTitle(
-                    second,
-                    fallbackTitle))
-                {
-                    return
-                        $"{first} {second}";
-                }
-            }
-
-            return first;
-        }
-
-
-        // =========================================================
-        // 4. HTML <TITLE>
+        // 3. HTML <title>
         // =========================================================
 
         var pageTitle =
             Regex.Match(
                 html,
-                @"<title[^>]*>(.*?)</title>",
+                @"<title\b[^>]*>(.*?)</title>",
                 RegexOptions.IgnoreCase |
                 RegexOptions.Singleline);
 
@@ -123,130 +101,71 @@ public class ChapterTitleResolver
                 CleanText(
                     pageTitle.Groups[1].Value);
 
-            if (IsValidChapterTitle(
-                title,
-                fallbackTitle))
+            // Az EPUB minden oldalán ugyanaz a könyvcím szerepel.
+            // Ezt nem tekintjük fejezetcímnek.
+            if (!string.IsNullOrWhiteSpace(title) &&
+                !LooksLikeBookTitle(
+                    title,
+                    fallbackTitle))
             {
                 return title;
             }
         }
 
-
         // =========================================================
-        // 5. ELSŐ RÖVID BEKEZDÉS
-        // =========================================================
-
-        foreach (Match block in blocks)
-        {
-            var title =
-                CleanText(
-                    block.Groups[1].Value);
-
-            if (IsValidChapterTitle(
-                title,
-                fallbackTitle)
-                &&
-                title.Length <= 100)
-            {
-                return title;
-            }
-        }
-
-
-        // =========================================================
-        // 6. FALLBACK
+        // 4. FALLBACK
         // =========================================================
 
         return fallbackTitle;
     }
 
 
-    // =========================================================
-    // SZÖVEG TISZTÍTÁSA
-    // =========================================================
+    private static bool LooksLikeBookTitle(
+        string title,
+        string fallbackTitle)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackTitle) &&
+            title.Equals(
+                fallbackTitle.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
 
     private static string CleanText(
         string text)
     {
         if (string.IsNullOrWhiteSpace(text))
+        {
             return string.Empty;
+        }
 
-        text =
+        var result =
             Regex.Replace(
                 text,
                 "<.*?>",
                 string.Empty,
                 RegexOptions.Singleline);
 
-        text =
+        result =
             WebUtility.HtmlDecode(
-                text);
+                result);
 
-        text =
+        result =
             Regex.Replace(
-                text,
+                result,
                 @"\s+",
                 " ");
 
-        return text.Trim();
-    }
-
-
-    // =========================================================
-    // ÉRVÉNYES FEJEZETCÍM?
-    // =========================================================
-
-    private static bool IsValidChapterTitle(
-        string title,
-        string fallbackTitle)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-            return false;
-
-        if (title.Length > 150)
-            return false;
-
-        // Ha ugyanaz, mint a hibás TOC-cím,
-        // nem fogadjuk el.
-        if (!string.IsNullOrWhiteSpace(fallbackTitle)
-            &&
-            string.Equals(
-                title.Trim(),
-                fallbackTitle.Trim(),
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        // Ne legyen teljes mondat / könyvszöveg.
-        if (title.Count(
-                c => c == '.' ||
-                     c == '!' ||
-                     c == '?') > 1)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-
-    // =========================================================
-    // FEJEZETSZÁM FELISMERÉSE
-    // =========================================================
-
-    private static bool IsChapterNumber(
-        string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        text =
-            text.Trim();
-
-        return Regex.IsMatch(
-            text,
-            @"^(?:chapter\s*)?\d{1,4}[.:]?$",
-            RegexOptions.IgnoreCase);
+        return result.Trim();
     }
 }

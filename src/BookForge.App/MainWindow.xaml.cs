@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
+using System.Text.RegularExpressions;
 using System.Windows.Media.Imaging;
 using BookForge.Core.Models;
 using BookForge.Services;
@@ -192,9 +193,9 @@ public partial class MainWindow : Window
             "}" +
 
             "body {" +
-            "font-family: '" + readerFontFamily + "', serif;" +
-            "font-size: " + fontSize + "px;" +
-            "line-height: " + lineSpacing + ";" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-size: " + fontSize + "px !important;" +
+            "line-height: " + lineSpacing + " !important;" +
             "margin: 30px;" +
             "color: " + textColor + ";" +
             "background: " + background + ";" +
@@ -204,30 +205,33 @@ public partial class MainWindow : Window
             "}" +
 
             "h1 {" +
-            "font-family: '" + readerFontFamily + "', serif;" +
-            "font-size: " + h1Size + "px;" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-size: " + h1Size + "px !important;" +
             "margin-top: 0;" +
             "margin-bottom: 20px;" +
             "color: " + headingColor + ";" +
             "}" +
 
             "h2 {" +
-            "font-family: '" + readerFontFamily + "', serif;" +
-            "font-size: " + h2Size + "px;" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-size: " + h2Size + "px !important;" +
             "margin-top: 24px;" +
             "margin-bottom: 16px;" +
             "color: " + headingColor + ";" +
             "}" +
 
             "h3 {" +
-            "font-family: '" + readerFontFamily + "', serif;" +
-            "font-size: " + h3Size + "px;" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-size: " + h3Size + "px !important;" +
             "margin-top: 20px;" +
             "margin-bottom: 14px;" +
             "color: " + headingColor + ";" +
             "}" +
 
             "p {" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-size: " + fontSize + "px !important;" +
+            "line-height: " + lineSpacing + " !important;" +
             "margin-top: 0;" +
             "margin-bottom: 16px;" +
             "}" +
@@ -309,7 +313,7 @@ public partial class MainWindow : Window
                     savedBook.FilePath))
                 {
                     var reader =
-                        new EpubReader();
+                        new EpubReaderV2();
 
                     var fullBook =
                         reader.Load(
@@ -426,6 +430,11 @@ public partial class MainWindow : Window
                 BookList.Items.Remove(
                     book);
 
+                TocList.ItemsSource =
+                    null;
+
+                TocList.Items.Clear();
+
                 ChapterList.ItemsSource =
                     null;
 
@@ -487,13 +496,11 @@ public partial class MainWindow : Window
 
 
         // =====================================================
-        // DIAGNOSZTIKA
+        // TARTALOMJEGYZÉK
         // =====================================================
 
-        MessageBox.Show(
-            $"A kiválasztott könyv fejezeteinek száma: {book.Chapters.Count}",
-            "BookForge diagnosztika");
-
+        LoadTableOfContents(
+            book);
 
         // =====================================================
         // FEJEZETLISTA
@@ -583,6 +590,147 @@ public partial class MainWindow : Window
                     book.Title,
                     book.Author);
         }
+    }
+
+
+    // =========================================================
+    // TARTALOMJEGYZÉK KIVÁLASZTÁSA
+    // =========================================================
+
+    private void TocList_SelectionChanged(
+        object sender,
+        System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (TocList.SelectedItem is KeyValuePair<string, string> item)
+        {
+            NavigateToTocEntry(
+                item.Key);
+        }
+    }
+
+
+    // =========================================================
+    // TARTALOMJEGYZÉK BETÖLTÉSE
+    // =========================================================
+
+    private void LoadTableOfContents(
+        Book book)
+    {
+        TocList.ItemsSource =
+            null;
+
+        TocList.Items.Clear();
+
+        if (book.Chapters == null ||
+            book.Chapters.Count == 0)
+        {
+            return;
+        }
+
+        // A Tartalomjegyzék ugyanazokat a feldolgozott
+        // fejezetcímeket használja, mint a Fejezetek lista.
+        // Így nem az EPUB eredeti TOC-címeit (pl. Caly,
+        // Mendax, Eli) jelenítjük meg.
+        // Csak a ténylegesen számozott fejezetek kerüljenek
+        // a Tartalomjegyzékbe. Az EPUB egyéb oldalai, például
+        // "Hová mentél? [Hungarian]", így nem jelennek meg.
+        var entries =
+            book.Chapters
+                .Where(
+                    chapter =>
+                        chapter != null &&
+                        !string.IsNullOrWhiteSpace(
+                            chapter.Title) &&
+                        Regex.IsMatch(
+                            chapter.Title.Trim(),
+                            @"^\d{1,4}\b"))
+                .OrderBy(
+                    chapter => chapter.Order)
+                .Select(
+                    chapter =>
+                    {
+                        var path =
+                            !string.IsNullOrWhiteSpace(
+                                chapter.FilePath)
+                                ? chapter.FilePath
+                                : chapter.Href;
+
+                        return new KeyValuePair<string, string>(
+                            path ?? string.Empty,
+                            chapter.Title.Trim());
+                    })
+                .Where(
+                    item =>
+                        !string.IsNullOrWhiteSpace(
+                            item.Key))
+                .ToList();
+
+        TocList.ItemsSource =
+            entries;
+    }
+
+
+    // =========================================================
+    // TARTALOMJEGYZÉK ELEM MEGNYITÁSA
+    // =========================================================
+
+    private void NavigateToTocEntry(
+        string tocPath)
+    {
+        if (currentBook == null)
+        {
+            return;
+        }
+
+        var normalizedTarget =
+            NormalizeChapterPath(
+                tocPath);
+
+        var chapter =
+            currentBook.Chapters.FirstOrDefault(
+                c =>
+                    string.Equals(
+                        NormalizeChapterPath(
+                            c.FilePath),
+                        normalizedTarget,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        NormalizeChapterPath(
+                            c.Href),
+                        normalizedTarget,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        Path.GetFileName(
+                            c.FilePath),
+                        Path.GetFileName(
+                            normalizedTarget),
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        Path.GetFileName(
+                            c.Href),
+                        Path.GetFileName(
+                            normalizedTarget),
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (chapter == null)
+        {
+            return;
+        }
+
+        ChapterList.SelectedItem =
+            chapter;
+
+        ChapterList.ScrollIntoView(
+            chapter);
+
+        TocList.ScrollIntoView(
+            TocList.SelectedItem);
+
+        ShowChapter(
+            chapter);
     }
 
 

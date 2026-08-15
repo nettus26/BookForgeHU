@@ -108,6 +108,13 @@ public class EpubReaderV2 : IEpubReader
                 manifest,
                 contentPath);
 
+        // A könyv saját tartalomjegyzékének eltárolása,
+        // hogy a felület később meg tudja jeleníteni.
+        book.TableOfContents =
+            new Dictionary<string, string>(
+                toc,
+                StringComparer.OrdinalIgnoreCase);
+
         // ============================
         // FEJEZETEK
         // ============================
@@ -222,16 +229,26 @@ public class EpubReaderV2 : IEpubReader
             Debug.WriteLine(
                 $"EPUB | HTML hossz: {html.Length}");
 
-            var title =
-                FindTocTitle(
-                    toc,
-                    chapterPath)
-                ?? $"Chapter {order}";
-
-            title =
+            // A tényleges XHTML-tartalom legyen az elsődleges
+            // forrás a fejezet címéhez. Az EPUB TOC/NCX címe
+            // csak tartalék, mert sok könyvnél rövidített vagy
+            // eltérő címeket tartalmaz.
+            var resolvedTitle =
                 titleResolver.Resolve(
                     html,
-                    title);
+                    string.Empty);
+
+            var tocTitle =
+                FindTocTitle(
+                    toc,
+                    chapterPath);
+
+            var title =
+                !string.IsNullOrWhiteSpace(resolvedTitle)
+                    ? resolvedTitle
+                    : !string.IsNullOrWhiteSpace(tocTitle)
+                        ? tocTitle
+                        : $"Chapter {order}";
 
             var chapter =
                 chapterLoader.Load(
