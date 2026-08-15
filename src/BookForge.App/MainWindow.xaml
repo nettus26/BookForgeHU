@@ -270,116 +270,125 @@
                         BorderThickness="1"
                         CornerRadius="6">
 
-                        <StackPanel
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Left">
+                        <Grid>
 
-                            <!-- BETŰMÉRET CSÖKKENTÉSE -->
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                            <Button
-                                x:Name="DecreaseFontButton"
-                                Content="A−"
-                                Width="45"
-                                Height="32"
-                                Margin="0,0,5,0"
-                                ToolTip="Betűméret csökkentése"
-                                Click="DecreaseFontButton_Click"/>
+                            <!-- ELSŐ SOR: BETŰMÉRET + BETŰTÍPUS -->
 
-                            <!-- AKTUÁLIS BETŰMÉRET -->
+                            <StackPanel
+                                Grid.Row="0"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Left">
 
-                            <TextBlock
-                                x:Name="FontSizeText"
-                                Text="20 px"
-                                Width="55"
-                                Height="32"
-                                VerticalAlignment="Center"
-                                TextAlignment="Center"
-                                FontWeight="Bold"
-                                Margin="0,0,5,0"/>
+                                <Button
+                                    x:Name="DecreaseFontButton"
+                                    Content="A−"
+                                    Width="45"
+                                    Height="32"
+                                    Margin="0,0,5,0"
+                                    ToolTip="Betűméret csökkentése"
+                                    Click="DecreaseFontButton_Click"/>
 
-                            <!-- BETŰMÉRET NÖVELÉSE -->
+                                <TextBlock
+                                    x:Name="FontSizeText"
+                                    Text="20 px"
+                                    Width="55"
+                                    Height="32"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
+                                    FontWeight="Bold"
+                                    Margin="0,0,5,0"/>
 
-                            <Button
-                                x:Name="IncreaseFontButton"
-                                Content="A+"
-                                Width="45"
-                                Height="32"
-                                Margin="0,0,15,0"
-                                ToolTip="Betűméret növelése"
-                                Click="IncreaseFontButton_Click"/>
+                                <Button
+                                    x:Name="IncreaseFontButton"
+                                    Content="A+"
+                                    Width="45"
+                                    Height="32"
+                                    Margin="0,0,15,0"
+                                    ToolTip="Betűméret növelése"
+                                    Click="IncreaseFontButton_Click"/>
 
-                            <!-- BETŰTÍPUS -->
+                                <TextBlock
+                                    Text="Betűtípus:"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,5,0"/>
 
-                            <TextBlock
-                                Text="Betűtípus:"
-                                VerticalAlignment="Center"
-                                Margin="0,0,5,0"/>
+                                <ComboBox
+                                    x:Name="FontFamilyComboBox"
+                                    Width="120"
+                                    Height="32"
+                                    SelectionChanged="FontFamilyComboBox_SelectionChanged">
 
-                            <ComboBox
-                                x:Name="FontFamilyComboBox"
-                                Width="120"
-                                Height="32"
-                                Margin="0,0,15,0"
-                                SelectionChanged="FontFamilyComboBox_SelectionChanged">
+                                    <ComboBoxItem
+                                        Content="Georgia"
+                                        IsSelected="True"/>
 
-                                <ComboBoxItem
-                                    Content="Georgia"
-                                    IsSelected="True"/>
+                                    <ComboBoxItem
+                                        Content="Arial"/>
 
-                                <ComboBoxItem
-                                    Content="Arial"/>
+                                    <ComboBoxItem
+                                        Content="Verdana"/>
 
-                                <ComboBoxItem
-                                    Content="Verdana"/>
+                                    <ComboBoxItem
+                                        Content="Times New Roman"/>
 
-                                <ComboBoxItem
-                                    Content="Times New Roman"/>
+                                    <ComboBoxItem
+                                        Content="Courier New"/>
 
-                                <ComboBoxItem
-                                    Content="Courier New"/>
+                                </ComboBox>
 
-                            </ComboBox>
+                            </StackPanel>
 
-                            <!-- SORKÖZ -->
+                            <!-- MÁSODIK SOR: SORKÖZ + TÉMA -->
 
-                            <TextBlock
-                                Text="Sorköz:"
-                                VerticalAlignment="Center"
-                                Margin="0,0,5,0"/>
+                            <StackPanel
+                                Grid.Row="1"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Left"
+                                Margin="0,8,0,0">
 
-                            <ComboBox
-                                x:Name="LineSpacingComboBox"
-                                Width="90"
-                                Height="32"
-                                Margin="0,0,15,0"
-                                SelectionChanged="LineSpacingComboBox_SelectionChanged">
+                                <TextBlock
+                                    Text="Sorköz:"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,5,0"/>
 
-                                <ComboBoxItem
-                                    Content="1.3"/>
+                                <ComboBox
+                                    x:Name="LineSpacingComboBox"
+                                    Width="90"
+                                    Height="32"
+                                    Margin="0,0,15,0"
+                                    SelectionChanged="LineSpacingComboBox_SelectionChanged">
 
-                                <ComboBoxItem
-                                    Content="1.5"
-                                    IsSelected="True"/>
+                                    <ComboBoxItem
+                                        Content="1.3"/>
 
-                                <ComboBoxItem
-                                    Content="1.7"/>
+                                    <ComboBoxItem
+                                        Content="1.5"
+                                        IsSelected="True"/>
 
-                                <ComboBoxItem
-                                    Content="2.0"/>
+                                    <ComboBoxItem
+                                        Content="1.7"/>
 
-                            </ComboBox>
+                                    <ComboBoxItem
+                                        Content="2.0"/>
 
-                            <!-- TÉMA -->
+                                </ComboBox>
 
-                            <Button
-                                x:Name="ThemeButton"
-                                Content="🌙 Sötét"
-                                Width="90"
-                                Height="32"
-                                ToolTip="Világos / sötét mód"
-                                Click="ThemeButton_Click"/>
+                                <Button
+                                    x:Name="ThemeButton"
+                                    Content="🌙 Sötét"
+                                    Width="90"
+                                    Height="32"
+                                    ToolTip="Világos / sötét mód"
+                                    Click="ThemeButton_Click"/>
 
-                        </StackPanel>
+                            </StackPanel>
+
+                        </Grid>
 
                     </Border>
 
