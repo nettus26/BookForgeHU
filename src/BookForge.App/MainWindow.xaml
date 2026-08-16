@@ -149,6 +149,33 @@
                         <TextBlock
                             x:Name="BookDateText"/>
 
+                        <TextBlock
+                            Text="Fejezetek:"
+                            FontWeight="Bold"
+                            Margin="0,10,0,0"/>
+
+                        <TextBlock
+                            x:Name="BookChapterCountText"
+                            Text="0"/>
+
+                        <TextBlock
+                            Text="Elolvasva:"
+                            FontWeight="Bold"
+                            Margin="0,10,0,0"/>
+
+                        <TextBlock
+                            x:Name="BookReadCountText"
+                            Text="0 / 0"/>
+
+                        <TextBlock
+                            Text="Olvasási haladás:"
+                            FontWeight="Bold"
+                            Margin="0,10,0,0"/>
+
+                        <TextBlock
+                            x:Name="BookProgressText"
+                            Text="0%"/>
+
                     </StackPanel>
 
                 </ScrollViewer>
