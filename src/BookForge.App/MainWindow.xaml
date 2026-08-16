@@ -176,6 +176,15 @@
                             x:Name="BookProgressText"
                             Text="0%"/>
 
+                        <Button
+                            x:Name="ContinueReadingButton"
+                            Content="▶ Folytatás"
+                            Width="150"
+                            Height="38"
+                            Margin="0,20,0,10"
+                            HorizontalAlignment="Center"
+                            Click="ContinueReadingButton_Click"/>
+
                     </StackPanel>
 
                 </ScrollViewer>

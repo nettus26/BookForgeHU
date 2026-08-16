@@ -567,6 +567,33 @@ public partial class MainWindow : Window
 
 
     // =========================================================
+    // FOLYTATÁS
+    // =========================================================
+
+    private void ContinueReadingButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (currentBook == null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(
+            currentBook.LastChapterPath))
+        {
+            MessageBox.Show(
+                "Ehhez a könyvhöz még nincs mentett olvasási hely.",
+                "BookForge");
+            return;
+        }
+
+        RestoreLastReadingPosition(
+            currentBook);
+    }
+
+
+    // =========================================================
     // KÖNYV STATISZTIKÁK
     // =========================================================
 
