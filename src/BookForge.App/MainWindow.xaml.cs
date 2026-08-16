@@ -621,6 +621,9 @@ public partial class MainWindow : Window
 
         BookProgressText.Text =
             $"{progress}%";
+
+        BookProgressBar.Value =
+            progress;
     }
 
 
