@@ -7,6 +7,8 @@ using System.Windows;
 using System.Windows.Threading;
 using System.Text.RegularExpressions;
 using System.Windows.Media.Imaging;
+using System.Globalization;
+using System.Windows.Data;
 using BookForge.Core.Models;
 using BookForge.Services;
 using BookForge.Epub;
@@ -15,6 +17,69 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace BookForge.App;
+
+
+public sealed class BookProgressTextConverter : IValueConverter
+{
+    public object Convert(
+        object? value,
+        Type targetType,
+        object? parameter,
+        CultureInfo culture)
+    {
+        if (value is Book book &&
+            book.Chapters != null)
+        {
+            var total = book.Chapters.Count;
+            var read = book.Chapters.Count(c => c.IsRead);
+
+            return $"{read} / {total} fejezet";
+        }
+
+        return "0 / 0 fejezet";
+    }
+
+    public object ConvertBack(
+        object? value,
+        Type targetType,
+        object? parameter,
+        CultureInfo culture)
+    {
+        return Binding.DoNothing;
+    }
+}
+
+public sealed class BookProgressPercentConverter : IValueConverter
+{
+    public object Convert(
+        object? value,
+        Type targetType,
+        object? parameter,
+        CultureInfo culture)
+    {
+        if (value is Book book &&
+            book.Chapters != null &&
+            book.Chapters.Count > 0)
+        {
+            var total = book.Chapters.Count;
+            var read = book.Chapters.Count(c => c.IsRead);
+
+            return Math.Round(
+                read * 100.0 / total);
+        }
+
+        return 0.0;
+    }
+
+    public object ConvertBack(
+        object? value,
+        Type targetType,
+        object? parameter,
+        CultureInfo culture)
+    {
+        return Binding.DoNothing;
+    }
+}
 
 public partial class MainWindow : Window
 {
