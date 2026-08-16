@@ -64,6 +64,53 @@
 
                 <DockPanel>
 
+                    <!-- KERESÉS ÉS RENDEZÉS -->
+
+                    <StackPanel
+                        DockPanel.Dock="Top">
+
+                        <TextBox
+                            x:Name="LibrarySearchBox"
+                            Height="32"
+                            Margin="5,5,5,3"
+                            Padding="8,0"
+                            VerticalContentAlignment="Center"
+                            TextChanged="LibrarySearchBox_TextChanged"
+                            ToolTip="Keresés cím vagy szerző alapján..."/>
+
+                        <ComboBox
+                            x:Name="LibrarySortComboBox"
+                            Height="32"
+                            Margin="5,3,5,5"
+                            SelectionChanged="LibrarySortComboBox_SelectionChanged"
+                            ToolTip="Könyvek rendezése">
+
+                            <ComboBoxItem
+                                Content="Alapértelmezett"
+                                IsSelected="True"/>
+
+                            <ComboBoxItem
+                                Content="Cím szerint"/>
+
+                            <ComboBoxItem
+                                Content="Szerző szerint"/>
+
+                            <ComboBoxItem
+                                Content="Legutóbb olvasott"/>
+
+                            <ComboBoxItem
+                                Content="Olvasatlan"/>
+
+                            <ComboBoxItem
+                                Content="Folyamatban"/>
+
+                            <ComboBoxItem
+                                Content="Befejezett"/>
+
+                        </ComboBox>
+
+                    </StackPanel>
+
                     <Button
                         DockPanel.Dock="Bottom"
                         Content="🗑 Könyv törlése"
@@ -106,6 +153,7 @@
                                                 FontSize="26"
                                                 HorizontalAlignment="Center"
                                                 VerticalAlignment="Center"/>
+
                                         </Border>
 
                                         <StackPanel
@@ -270,21 +318,30 @@
                 <TabControl>
 
                     <TabItem Header="📑 Tartalomjegyzék">
+
                         <ListView
                             x:Name="TocList"
                             SelectionChanged="TocList_SelectionChanged">
+
                             <ListView.ItemTemplate>
+
                                 <DataTemplate>
+
                                     <TextBlock
                                         Text="{Binding Value}"
                                         FontWeight="Bold"
                                         Margin="5"/>
+
                                 </DataTemplate>
+
                             </ListView.ItemTemplate>
+
                         </ListView>
+
                     </TabItem>
 
                     <TabItem Header="📖 Fejezetek">
+
                         <ListView
                             x:Name="ChapterList"
                             SelectionChanged="ChapterList_SelectionChanged">
@@ -304,6 +361,7 @@
                                             Margin="0,0,6,0">
 
                                             <TextBlock.Style>
+
                                                 <Style
                                                     TargetType="TextBlock">
 
@@ -326,6 +384,7 @@
                                                     </Style.Triggers>
 
                                                 </Style>
+
                                             </TextBlock.Style>
 
                                         </TextBlock>
@@ -341,6 +400,7 @@
                             </ListView.ItemTemplate>
 
                         </ListView>
+
                     </TabItem>
 
                 </TabControl>

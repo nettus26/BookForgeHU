@@ -467,6 +467,202 @@ public partial class MainWindow : Window
 
 
     // =========================================================
+    // KÖNYVTÁRI KERESÉS ÉS RENDEZÉS
+    // =========================================================
+
+    private void LibrarySearchBox_TextChanged(
+        object sender,
+        System.Windows.Controls.TextChangedEventArgs e)
+    {
+        if (BookList == null)
+        {
+            return;
+        }
+
+        RefreshLibraryList();
+    }
+
+
+    private void LibrarySortComboBox_SelectionChanged(
+        object sender,
+        System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (BookList == null)
+        {
+            return;
+        }
+
+        RefreshLibraryList();
+    }
+
+
+    private void RefreshLibraryList()
+    {
+        if (BookList == null)
+        {
+            return;
+        }
+
+        var searchText =
+            LibrarySearchBox?.Text?.Trim() ?? string.Empty;
+
+        var selectedBook =
+            BookList.SelectedItem as Book;
+
+        IEnumerable<Book> filteredBooks =
+            books;
+
+        if (!string.IsNullOrWhiteSpace(searchText))
+        {
+            filteredBooks =
+                filteredBooks.Where(
+                    book =>
+                        (!string.IsNullOrWhiteSpace(book.Title) &&
+                         book.Title.Contains(
+                             searchText,
+                             StringComparison.OrdinalIgnoreCase))
+                        ||
+                        (!string.IsNullOrWhiteSpace(book.Author) &&
+                         book.Author.Contains(
+                             searchText,
+                             StringComparison.OrdinalIgnoreCase)));
+        }
+
+        var sortMode =
+            (LibrarySortComboBox?.SelectedItem
+                as System.Windows.Controls.ComboBoxItem)
+                ?.Content?.ToString()
+            ?? "Alapértelmezett";
+
+        filteredBooks =
+            sortMode switch
+            {
+                "Cím szerint" =>
+                    filteredBooks
+                        .OrderBy(
+                            book => book.Title ?? string.Empty,
+                            StringComparer.CurrentCultureIgnoreCase),
+
+                "Szerző szerint" =>
+                    filteredBooks
+                        .OrderBy(
+                            book => book.Author ?? string.Empty,
+                            StringComparer.CurrentCultureIgnoreCase),
+
+                "Legutóbb olvasott" =>
+                    filteredBooks
+                        .OrderByDescending(
+                            book => book.LastOpened),
+
+                "Olvasatlan" =>
+                    filteredBooks
+                        .OrderBy(
+                            GetReadingStatus),
+
+                "Folyamatban" =>
+                    filteredBooks
+                        .OrderBy(
+                            book => GetInProgressSortValue(book)),
+
+                "Befejezett" =>
+                    filteredBooks
+                        .OrderByDescending(
+                            GetCompletedSortValue),
+
+                _ =>
+                    filteredBooks
+            };
+
+        var result =
+            filteredBooks.ToList();
+
+        BookList.ItemsSource = null;
+        BookList.Items.Clear();
+
+        foreach (var book in result)
+        {
+            BookList.Items.Add(book);
+        }
+
+        if (selectedBook != null &&
+            result.Contains(selectedBook))
+        {
+            BookList.SelectedItem =
+                selectedBook;
+        }
+    }
+
+
+    private static int GetReadingStatus(
+        Book book)
+    {
+        var total =
+            book.Chapters?.Count ?? 0;
+
+        var read =
+            book.Chapters?.Count(
+                chapter => chapter.IsRead) ?? 0;
+
+        if (total == 0 ||
+            read == 0)
+        {
+            return 0;
+        }
+
+        if (read < total)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+
+    private static int GetInProgressSortValue(
+        Book book)
+    {
+        var total =
+            book.Chapters?.Count ?? 0;
+
+        var read =
+            book.Chapters?.Count(
+                chapter => chapter.IsRead) ?? 0;
+
+        if (total > 0 &&
+            read > 0 &&
+            read < total)
+        {
+            return 0;
+        }
+
+        if (total > 0 &&
+            read == total)
+        {
+            return 1;
+        }
+
+        return 2;
+    }
+
+
+    private static int GetCompletedSortValue(
+        Book book)
+    {
+        var total =
+            book.Chapters?.Count ?? 0;
+
+        var read =
+            book.Chapters?.Count(
+                chapter => chapter.IsRead) ?? 0;
+
+        return total > 0 &&
+               read == total
+            ? 1
+            : 0;
+    }
+
+
+    // =========================================================
     // EPUB HOZZÁADÁSA
     // =========================================================
 
