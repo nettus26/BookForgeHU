@@ -69,19 +69,39 @@
                     <StackPanel
                         DockPanel.Dock="Top">
 
-                        <TextBox
-                            x:Name="LibrarySearchBox"
-                            Height="32"
-                            Margin="5,5,5,3"
-                            Padding="8,0"
-                            VerticalContentAlignment="Center"
-                            TextChanged="LibrarySearchBox_TextChanged"
-                            ToolTip="Keresés cím vagy szerző alapján..."/>
+                        <Grid
+                            Margin="5,5,5,3">
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="38"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox
+                                x:Name="LibrarySearchBox"
+                                Grid.Column="0"
+                                Height="32"
+                                Padding="8,0"
+                                VerticalContentAlignment="Center"
+                                TextChanged="LibrarySearchBox_TextChanged"
+                                ToolTip="Keresés cím vagy szerző alapján..."/>
+
+                            <Button
+                                x:Name="ClearLibrarySearchButton"
+                                Grid.Column="1"
+                                Content="✕"
+                                Width="32"
+                                Height="32"
+                                Margin="5,0,0,0"
+                                ToolTip="Keresés törlése"
+                                Click="ClearLibrarySearchButton_Click"/>
+
+                        </Grid>
 
                         <ComboBox
                             x:Name="LibrarySortComboBox"
                             Height="32"
-                            Margin="5,3,5,5"
+                            Margin="5,3,5,3"
                             SelectionChanged="LibrarySortComboBox_SelectionChanged"
                             ToolTip="Könyvek rendezése">
 
@@ -109,6 +129,12 @@
 
                         </ComboBox>
 
+                        <TextBlock
+                            x:Name="LibraryResultCountText"
+                            Text="0 könyv"
+                            FontSize="11"
+                            Margin="7,0,5,5"/>
+
                     </StackPanel>
 
                     <Button
@@ -117,6 +143,16 @@
                         Height="35"
                         Margin="5"
                         Click="DeleteBook_Click"/>
+
+                    <TextBlock
+                        x:Name="LibraryNoResultsText"
+                        Text="📭 Nincs találat."
+                        FontSize="13"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        TextAlignment="Center"
+                        Margin="10"
+                        Visibility="Collapsed"/>
 
                     <ListBox
                         x:Name="BookList"

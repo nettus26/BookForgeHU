@@ -562,7 +562,7 @@ public partial class MainWindow : Window
                 "Folyamatban" =>
                     filteredBooks
                         .OrderBy(
-                            book => GetInProgressSortValue(book)),
+                            GetInProgressSortValue),
 
                 "Befejezett" =>
                     filteredBooks
@@ -584,12 +584,42 @@ public partial class MainWindow : Window
             BookList.Items.Add(book);
         }
 
+        if (LibraryResultCountText != null)
+        {
+            LibraryResultCountText.Text =
+                result.Count == 1
+                    ? "1 könyv"
+                    : $"{result.Count} könyv";
+        }
+
+        if (LibraryNoResultsText != null)
+        {
+            LibraryNoResultsText.Visibility =
+                result.Count == 0
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+        }
+
         if (selectedBook != null &&
             result.Contains(selectedBook))
         {
             BookList.SelectedItem =
                 selectedBook;
         }
+    }
+
+
+    private void ClearLibrarySearchButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (LibrarySearchBox == null)
+        {
+            return;
+        }
+
+        LibrarySearchBox.Clear();
+        LibrarySearchBox.Focus();
     }
 
 
