@@ -600,6 +600,28 @@ public partial class MainWindow : Window
     }
 
 
+    // =========================================================
+    // OLVASÁSI ÁLLAPOT SZŰRÉSE
+    // =========================================================
+
+    private void LibraryStatusFilterComboBox_SelectionChanged(
+        object sender,
+        SelectionChangedEventArgs e)
+    {
+        RefreshLibraryList();
+    }
+
+
+    private string GetSelectedLibraryStatusFilter()
+    {
+        return
+            (LibraryStatusFilterComboBox?.SelectedItem
+                as ComboBoxItem)
+                ?.Content?.ToString()
+            ?? "Minden állapot";
+    }
+
+
     private void RefreshLibraryList()
     {
         if (BookList == null)
@@ -621,6 +643,21 @@ public partial class MainWindow : Window
             filteredBooks =
                 filteredBooks.Where(
                     book => book.IsFavorite);
+        }
+
+        var statusFilter =
+            GetSelectedLibraryStatusFilter();
+
+        if (statusFilter != "Minden állapot")
+        {
+            filteredBooks =
+                filteredBooks.Where(
+                    book =>
+                        statusFilter == "Olvasatlan"
+                            ? GetReadingStatus(book) == 0
+                            : statusFilter == "Folyamatban"
+                                ? GetReadingStatus(book) == 1
+                                : GetReadingStatus(book) == 2);
         }
 
         if (!string.IsNullOrWhiteSpace(searchText))

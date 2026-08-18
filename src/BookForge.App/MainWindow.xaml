@@ -318,6 +318,28 @@
 
                         </ComboBox>
 
+                        <ComboBox
+                            x:Name="LibraryStatusFilterComboBox"
+                            Height="32"
+                            Margin="5,0,5,3"
+                            SelectionChanged="LibraryStatusFilterComboBox_SelectionChanged"
+                            ToolTip="Olvasási állapot szűrése">
+
+                            <ComboBoxItem
+                                Content="Minden állapot"
+                                IsSelected="True"/>
+
+                            <ComboBoxItem
+                                Content="Olvasatlan"/>
+
+                            <ComboBoxItem
+                                Content="Folyamatban"/>
+
+                            <ComboBoxItem
+                                Content="Befejezett"/>
+
+                        </ComboBox>
+
                         <TextBlock
                             x:Name="LibraryResultCountText"
                             Text="0 könyv"
