@@ -1,20 +1,21 @@
-﻿using Microsoft.Win32;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Windows;
-using System.Windows.Threading;
-using System.Text.RegularExpressions;
-using System.Windows.Media.Imaging;
-using System.Globalization;
-using System.Windows.Data;
+﻿using BookForge.App.Services;
 using BookForge.Core.Models;
-using BookForge.Services;
 using BookForge.Epub;
-using BookForge.App.Services;
+using BookForge.Services;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace BookForge.App;
 
@@ -463,6 +464,8 @@ public partial class MainWindow : Window
                     savedBook);
             }
         }
+
+        RefreshLibraryList();
     }
 
 
@@ -721,6 +724,8 @@ public partial class MainWindow : Window
                 BookList.Items.Add(
                     book);
 
+                RefreshLibraryList();
+
                 BookList.SelectedItem =
                     book;
 
@@ -766,6 +771,8 @@ public partial class MainWindow : Window
 
                 BookList.Items.Remove(
                     book);
+
+                RefreshLibraryList();
 
                 TocList.ItemsSource =
                     null;
@@ -957,7 +964,7 @@ public partial class MainWindow : Window
         try
         {
             if (!string.IsNullOrWhiteSpace(
-                book.CoverImage)
+                    book.CoverImage)
                 &&
                 File.Exists(
                     book.CoverImage))
@@ -976,23 +983,114 @@ public partial class MainWindow : Window
 
                 image.EndInit();
 
-                CoverImageBox.Source =
-                    image;
+                if (!IsBlackPlaceholder(image))
+                {
+                    CoverImageBox.Source =
+                        image;
 
-                return;
+                    return;
+                }
             }
 
             CoverImageBox.Source =
-                coverService.CreateDefaultCover(
-                    book.Title,
-                    book.Author);
+                BookCoverImageConverter
+                    .CreateBookForgeCover();
         }
         catch
         {
             CoverImageBox.Source =
-                coverService.CreateDefaultCover(
-                    book.Title,
-                    book.Author);
+                BookCoverImageConverter
+                    .CreateBookForgeCover();
+        }
+    }
+
+
+    private static bool IsBlackPlaceholder(
+        BitmapSource image)
+    {
+        try
+        {
+            var converted =
+                new FormatConvertedBitmap(
+                    image,
+                    PixelFormats.Bgra32,
+                    null,
+                    0);
+
+            var width =
+                converted.PixelWidth;
+
+            var height =
+                converted.PixelHeight;
+
+            if (width <= 0 || height <= 0)
+            {
+                return true;
+            }
+
+            var stride =
+                width * 4;
+
+            var pixels =
+                new byte[
+                    stride * height];
+
+            converted.CopyPixels(
+                pixels,
+                stride,
+                0);
+
+            long totalBrightness = 0;
+            int samples = 0;
+
+            var stepX =
+                Math.Max(1, width / 20);
+
+            var stepY =
+                Math.Max(1, height / 20);
+
+            for (var y = 0;
+                 y < height;
+                 y += stepY)
+            {
+                for (var x = 0;
+                     x < width;
+                     x += stepX)
+                {
+                    var index =
+                        (y * stride) +
+                        (x * 4);
+
+                    var blue =
+                        pixels[index];
+
+                    var green =
+                        pixels[index + 1];
+
+                    var red =
+                        pixels[index + 2];
+
+                    totalBrightness +=
+                        red + green + blue;
+
+                    samples++;
+                }
+            }
+
+            if (samples == 0)
+            {
+                return true;
+            }
+
+            var averageBrightness =
+                totalBrightness /
+                (double)(samples * 3);
+
+            return averageBrightness < 8.0;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -2137,5 +2235,417 @@ public partial class MainWindow : Window
         return string.Join(
             "/",
             result);
+    }
+}
+
+// =========================================================
+// KÖNYVBORÍTÓ KONVERTER
+// =========================================================
+
+public class BookCoverImageConverter :
+    IValueConverter
+{
+    public object Convert(
+        object? value,
+        Type targetType,
+        object? parameter,
+        CultureInfo culture)
+    {
+        if (value is not Book book)
+        {
+            return CreateBookForgeCover();
+        }
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(
+                    book.CoverImage)
+                &&
+                File.Exists(
+                    book.CoverImage))
+            {
+                var image =
+                    new BitmapImage();
+
+                image.BeginInit();
+
+                image.UriSource =
+                    new Uri(
+                        book.CoverImage);
+
+                image.CacheOption =
+                    BitmapCacheOption.OnLoad;
+
+                image.EndInit();
+
+                if (!IsBlackPlaceholder(image))
+                {
+                    return image;
+                }
+            }
+        }
+        catch
+        {
+            // A BookForge alapértelmezett borítójára esünk vissza.
+        }
+
+        return CreateBookForgeCover();
+    }
+
+    public object ConvertBack(
+        object? value,
+        Type targetType,
+        object? parameter,
+        CultureInfo culture)
+    {
+        throw new NotSupportedException();
+    }
+
+    private static bool IsBlackPlaceholder(
+        BitmapSource image)
+    {
+        try
+        {
+            var converted =
+                new FormatConvertedBitmap(
+                    image,
+                    PixelFormats.Bgra32,
+                    null,
+                    0);
+
+            var width =
+                converted.PixelWidth;
+
+            var height =
+                converted.PixelHeight;
+
+            if (width <= 0 || height <= 0)
+            {
+                return true;
+            }
+
+            var stride =
+                width * 4;
+
+            var pixels =
+                new byte[
+                    stride * height];
+
+            converted.CopyPixels(
+                pixels,
+                stride,
+                0);
+
+            long totalBrightness = 0;
+            int samples = 0;
+
+            var stepX =
+                Math.Max(1, width / 20);
+
+            var stepY =
+                Math.Max(1, height / 20);
+
+            for (var y = 0;
+                 y < height;
+                 y += stepY)
+            {
+                for (var x = 0;
+                     x < width;
+                     x += stepX)
+                {
+                    var index =
+                        (y * stride) +
+                        (x * 4);
+
+                    totalBrightness +=
+                        pixels[index] +
+                        pixels[index + 1] +
+                        pixels[index + 2];
+
+                    samples++;
+                }
+            }
+
+            if (samples == 0)
+            {
+                return true;
+            }
+
+            var averageBrightness =
+                totalBrightness /
+                (double)(samples * 3);
+
+            return averageBrightness < 8.0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static ImageSource CreateBookForgeCover()
+    {
+        const int width = 420;
+        const int height = 620;
+
+        var visual =
+            new DrawingVisual();
+
+        using (var context =
+            visual.RenderOpen())
+        {
+            var backgroundBrush =
+                new SolidColorBrush(
+                    Color.FromRgb(18, 35, 52));
+
+            var borderBrush =
+                new SolidColorBrush(
+                    Color.FromRgb(150, 125, 82));
+
+            var goldBrush =
+                new SolidColorBrush(
+                    Color.FromRgb(218, 192, 140));
+
+            var lightBrush =
+                new SolidColorBrush(
+                    Color.FromRgb(232, 232, 232));
+
+            context.DrawRectangle(
+                backgroundBrush,
+                null,
+                new Rect(
+                    0,
+                    0,
+                    width,
+                    height));
+
+            var outerPen =
+                new Pen(
+                    borderBrush,
+                    5);
+
+            var innerPen =
+                new Pen(
+                    borderBrush,
+                    2);
+
+            context.DrawRectangle(
+                null,
+                outerPen,
+                new Rect(
+                    18,
+                    18,
+                    width - 36,
+                    height - 36));
+
+            context.DrawRectangle(
+                null,
+                innerPen,
+                new Rect(
+                    32,
+                    32,
+                    width - 64,
+                    height - 64));
+
+            var titleTypeface =
+                new Typeface(
+                    new FontFamily("Georgia"),
+                    FontStyles.Normal,
+                    FontWeights.Bold,
+                    FontStretches.Normal);
+
+            var subtitleTypeface =
+                new Typeface(
+                    new FontFamily("Georgia"),
+                    FontStyles.Normal,
+                    FontWeights.Normal,
+                    FontStretches.Normal);
+
+            var title =
+                new FormattedText(
+                    "BOOKFORGE",
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    titleTypeface,
+                    30,
+                    goldBrush,
+                    1.0);
+
+            title.TextAlignment =
+                TextAlignment.Center;
+
+            context.DrawText(
+                title,
+                new Point(
+                    (width - title.Width) / 2,
+                    125));
+
+            var subtitle =
+                new FormattedText(
+                    "NINCS BORÍTÓ",
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    subtitleTypeface,
+                    24,
+                    lightBrush,
+                    1.0);
+
+            subtitle.TextAlignment =
+                TextAlignment.Center;
+
+            context.DrawText(
+                subtitle,
+                new Point(
+                    (width - subtitle.Width) / 2,
+                    175));
+
+            var bookPen =
+                new Pen(
+                    goldBrush,
+                    5);
+
+            var centerX =
+                width / 2.0;
+
+            var bookTop = 270.0;
+            var bookBottom = 390.0;
+            var bookLeft = 105.0;
+            var bookRight = 315.0;
+
+            var leftGeometry =
+                new StreamGeometry();
+
+            using (var geometryContext =
+                leftGeometry.Open())
+            {
+                geometryContext.BeginFigure(
+                    new Point(
+                        centerX,
+                        bookTop),
+                    true,
+                    false);
+
+                geometryContext.LineTo(
+                    new Point(
+                        bookLeft,
+                        bookTop + 30),
+                    true,
+                    false);
+
+                geometryContext.LineTo(
+                    new Point(
+                        bookLeft,
+                        bookBottom),
+                    true,
+                    false);
+
+                geometryContext.LineTo(
+                    new Point(
+                        centerX,
+                        bookBottom - 28),
+                    true,
+                    false);
+
+                geometryContext.Close();
+            }
+
+            var rightGeometry =
+                new StreamGeometry();
+
+            using (var geometryContext =
+                rightGeometry.Open())
+            {
+                geometryContext.BeginFigure(
+                    new Point(
+                        centerX,
+                        bookTop),
+                    true,
+                    false);
+
+                geometryContext.LineTo(
+                    new Point(
+                        bookRight,
+                        bookTop + 30),
+                    true,
+                    false);
+
+                geometryContext.LineTo(
+                    new Point(
+                        bookRight,
+                        bookBottom),
+                    true,
+                    false);
+
+                geometryContext.LineTo(
+                    new Point(
+                        centerX,
+                        bookBottom - 28),
+                    true,
+                    false);
+
+                geometryContext.Close();
+            }
+
+            context.DrawGeometry(
+                null,
+                bookPen,
+                leftGeometry);
+
+            context.DrawGeometry(
+                null,
+                bookPen,
+                rightGeometry);
+
+            context.DrawLine(
+                bookPen,
+                new Point(
+                    centerX,
+                    bookTop),
+                new Point(
+                    centerX,
+                    bookBottom));
+
+            var ornament =
+                new FormattedText(
+                    "✦",
+                    CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight,
+                    subtitleTypeface,
+                    28,
+                    goldBrush,
+                    1.0);
+
+            ornament.TextAlignment =
+                TextAlignment.Center;
+
+            context.DrawText(
+                ornament,
+                new Point(
+                    (width - ornament.Width) / 2,
+                    455));
+
+            var bottomLinePen =
+                new Pen(
+                    borderBrush,
+                    2);
+
+            context.DrawLine(
+                bottomLinePen,
+                new Point(105, 505),
+                new Point(315, 505));
+        }
+
+        var bitmap =
+            new RenderTargetBitmap(
+                width,
+                height,
+                96,
+                96,
+                PixelFormats.Pbgra32);
+
+        bitmap.Render(
+            visual);
+
+        return bitmap;
     }
 }
