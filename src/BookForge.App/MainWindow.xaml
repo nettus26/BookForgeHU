@@ -11,6 +11,158 @@
         <local:BookProgressTextConverter x:Key="BookProgressTextConverter"/>
         <local:BookProgressPercentConverter x:Key="BookProgressPercentConverter"/>
         <local:BookCoverImageConverter x:Key="BookCoverImageConverter"/>
+
+
+        <!-- ===================================================== -->
+        <!-- KÖNYVTÁR – RÁCSNÉZET -->
+        <!-- ===================================================== -->
+
+        <DataTemplate
+            x:Key="LibraryGridTemplate">
+
+            <Border
+                Width="145"
+                Height="235"
+                Margin="5"
+                Padding="7"
+                BorderThickness="1"
+                CornerRadius="8">
+
+                <Grid>
+
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="165"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border
+                        Grid.Row="0"
+                        Width="105"
+                        Height="155"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+
+                        <Image
+                            Source="{Binding Converter={StaticResource BookCoverImageConverter}}"
+                            Stretch="Uniform"
+                            Width="105"
+                            Height="155"/>
+
+                    </Border>
+
+                    <TextBlock
+                        Grid.Row="1"
+                        Text="{Binding Title}"
+                        FontWeight="Bold"
+                        FontSize="13"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        MaxHeight="36"
+                        Margin="2,2,2,0"/>
+
+                    <TextBlock
+                        Grid.Row="2"
+                        Text="{Binding Author}"
+                        FontSize="11"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        MaxHeight="30"
+                        Margin="2,2,2,0"/>
+
+                    <ProgressBar
+                        Grid.Row="3"
+                        Height="6"
+                        Minimum="0"
+                        Maximum="100"
+                        Margin="5,5,5,0"
+                        Value="{Binding Path=., Mode=OneWay, Converter={StaticResource BookProgressPercentConverter}}"/>
+
+                </Grid>
+
+            </Border>
+
+        </DataTemplate>
+
+
+        <!-- ===================================================== -->
+        <!-- KÖNYVTÁR – LISTANÉZET -->
+        <!-- ===================================================== -->
+
+        <DataTemplate
+            x:Key="LibraryListTemplate">
+
+            <Border
+                Margin="4,3"
+                Padding="6"
+                BorderThickness="1"
+                CornerRadius="8"
+                HorizontalAlignment="Stretch">
+
+                <Grid>
+
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="62"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="120"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Image
+                        Grid.Column="0"
+                        Width="50"
+                        Height="72"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Stretch="Uniform"
+                        Source="{Binding Converter={StaticResource BookCoverImageConverter}}"/>
+
+                    <StackPanel
+                        Grid.Column="1"
+                        Margin="10,0,8,0"
+                        VerticalAlignment="Center">
+
+                        <TextBlock
+                            Text="{Binding Title}"
+                            FontWeight="Bold"
+                            FontSize="13"
+                            TextWrapping="Wrap"/>
+
+                        <TextBlock
+                            Text="{Binding Author}"
+                            FontSize="11"
+                            Margin="0,4,0,0"
+                            TextWrapping="Wrap"/>
+
+                    </StackPanel>
+
+                    <StackPanel
+                        Grid.Column="2"
+                        VerticalAlignment="Center">
+
+                        <TextBlock
+                            Text="Olvasási haladás"
+                            FontSize="10"/>
+
+                        <ProgressBar
+                            Height="7"
+                            Minimum="0"
+                            Maximum="100"
+                            Margin="0,5,0,0"
+                            Value="{Binding Path=., Mode=OneWay, Converter={StaticResource BookProgressPercentConverter}}"/>
+
+                        <TextBlock
+                            Text="{Binding Path=., Mode=OneWay, Converter={StaticResource BookProgressTextConverter}}"
+                            FontSize="10"
+                            Margin="0,3,0,0"/>
+
+                    </StackPanel>
+
+                </Grid>
+
+            </Border>
+
+        </DataTemplate>
     </Window.Resources>
 
     <Grid Margin="20">
@@ -99,6 +251,15 @@
 
                         </Grid>
 
+                        <Button
+                            x:Name="LibraryViewToggleButton"
+                            Content="☰ Lista nézet"
+                            Height="30"
+                            Margin="5,0,5,3"
+                            HorizontalAlignment="Stretch"
+                            ToolTip="Rács és lista nézet váltása"
+                            Click="LibraryViewToggleButton_Click"/>
+
                         <ComboBox
                             x:Name="LibrarySortComboBox"
                             Height="32"
@@ -162,7 +323,8 @@
                         Background="Transparent"
                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                        HorizontalContentAlignment="Stretch">
+                        HorizontalContentAlignment="Stretch"
+                        ItemTemplate="{StaticResource LibraryGridTemplate}">
 
                         <ListBox.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -190,90 +352,6 @@
 
                             </Style>
                         </ListBox.ItemContainerStyle>
-
-                        <ListBox.ItemTemplate>
-
-                            <DataTemplate>
-
-                                <Border
-                                    Width="145"
-                                    Height="235"
-                                    Margin="5"
-                                    Padding="7"
-                                    BorderThickness="1"
-                                    CornerRadius="8">
-
-                                    <Grid>
-
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="165"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-
-                                        <!-- BORÍTÓ -->
-
-                                        <Border
-                                            Grid.Row="0"
-                                            Width="105"
-                                            Height="155"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center">
-
-                                            <Grid>
-
-                                                <Image
-                                                    Source="{Binding Converter={StaticResource BookCoverImageConverter}}"
-                                                    Stretch="Uniform"
-                                                    Width="105"
-                                                    Height="155"/>
-
-
-                                            </Grid>
-
-                                        </Border>
-
-                                        <!-- CÍM -->
-
-                                        <TextBlock
-                                            Grid.Row="1"
-                                            Text="{Binding Title}"
-                                            FontWeight="Bold"
-                                            FontSize="13"
-                                            TextAlignment="Center"
-                                            TextWrapping="Wrap"
-                                            MaxHeight="36"
-                                            Margin="2,2,2,0"/>
-
-                                        <!-- SZERZŐ -->
-
-                                        <TextBlock
-                                            Grid.Row="2"
-                                            Text="{Binding Author}"
-                                            FontSize="11"
-                                            TextAlignment="Center"
-                                            TextWrapping="Wrap"
-                                            MaxHeight="30"
-                                            Margin="2,2,2,0"/>
-
-                                        <!-- HALADÁS -->
-
-                                        <ProgressBar
-                                            Grid.Row="3"
-                                            Height="6"
-                                            Minimum="0"
-                                            Maximum="100"
-                                            Margin="5,5,5,0"
-                                            Value="{Binding Path=., Mode=OneWay, Converter={StaticResource BookProgressPercentConverter}}"/>
-
-                                    </Grid>
-
-                                </Border>
-
-                            </DataTemplate>
-
-                        </ListBox.ItemTemplate>
 
                     </ListBox>
 

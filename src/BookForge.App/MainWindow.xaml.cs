@@ -12,6 +12,8 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -493,6 +495,60 @@ public partial class MainWindow : Window
         if (BookList == null)
         {
             return;
+        }
+
+        RefreshLibraryList();
+    }
+
+
+    // =========================================================
+    // KÖNYVTÁRI NÉZETVÁLTÁS
+    // =========================================================
+
+    private bool isLibraryListView = false;
+
+
+    private void LibraryViewToggleButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        isLibraryListView =
+            !isLibraryListView;
+
+        if (isLibraryListView)
+        {
+            BookList.ItemTemplate =
+                (DataTemplate)FindResource(
+                    "LibraryListTemplate");
+
+            BookList.ItemsPanel =
+                new ItemsPanelTemplate(
+                    new FrameworkElementFactory(
+                        typeof(StackPanel)));
+
+            LibraryViewToggleButton.Content =
+                "▦ Rács nézet";
+        }
+        else
+        {
+            BookList.ItemTemplate =
+                (DataTemplate)FindResource(
+                    "LibraryGridTemplate");
+
+            var panelFactory =
+                new FrameworkElementFactory(
+                    typeof(UniformGrid));
+
+            panelFactory.SetValue(
+                UniformGrid.ColumnsProperty,
+                2);
+
+            BookList.ItemsPanel =
+                new ItemsPanelTemplate(
+                    panelFactory);
+
+            LibraryViewToggleButton.Content =
+                "☰ Lista nézet";
         }
 
         RefreshLibraryList();
