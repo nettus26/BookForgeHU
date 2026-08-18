@@ -35,13 +35,21 @@ public class Book
 
 
     // =========================================================
+    // KEDVENC
+    // =========================================================
+
+    public bool IsFavorite { get; set; }
+
+    public string FavoriteIcon =>
+        IsFavorite ? "★" : "☆";
+
+
+    // =========================================================
     // OLVASÁSI POZÍCIÓ
     // =========================================================
 
-    // Az utoljára olvasott fejezet elérési útja
     public string LastChapterPath { get; set; } = string.Empty;
 
-    // Az utolsó mentett görgetési pozíció pixelben
     public double LastScrollPosition { get; set; }
 
 
@@ -49,16 +57,12 @@ public class Book
     // OLVASÓ BEÁLLÍTÁSOK
     // =========================================================
 
-    // A könyvhöz tartozó betűméret
     public double ReaderFontSize { get; set; } = 20;
 
-    // A könyvhöz tartozó betűtípus
     public string ReaderFontFamily { get; set; } = "Georgia";
 
-    // A könyvhöz tartozó sorköz
     public double ReaderLineSpacing { get; set; } = 1.5;
 
-    // A könyvhöz tartozó világos / sötét mód
     public bool ReaderDarkMode { get; set; } = false;
 
 

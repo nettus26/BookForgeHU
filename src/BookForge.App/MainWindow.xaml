@@ -105,6 +105,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="62"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="35"/>
                         <ColumnDefinition Width="120"/>
                     </Grid.ColumnDefinitions>
 
@@ -136,8 +137,15 @@
 
                     </StackPanel>
 
-                    <StackPanel
+                    <TextBlock
                         Grid.Column="2"
+                        Text="{Binding FavoriteIcon}"
+                        FontSize="16"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"/>
+
+                    <StackPanel
+                        Grid.Column="3"
                         VerticalAlignment="Center">
 
                         <TextBlock
@@ -251,14 +259,33 @@
 
                         </Grid>
 
-                        <Button
-                            x:Name="LibraryViewToggleButton"
-                            Content="☰ Lista nézet"
-                            Height="30"
-                            Margin="5,0,5,3"
-                            HorizontalAlignment="Stretch"
-                            ToolTip="Rács és lista nézet váltása"
-                            Click="LibraryViewToggleButton_Click"/>
+                        <Grid
+                            Margin="5,0,5,3">
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button
+                                x:Name="LibraryViewToggleButton"
+                                Grid.Column="0"
+                                Content="☰ Lista nézet"
+                                Height="30"
+                                Margin="0,0,3,0"
+                                ToolTip="Rács és lista nézet váltása"
+                                Click="LibraryViewToggleButton_Click"/>
+
+                            <Button
+                                x:Name="LibraryFavoritesToggleButton"
+                                Grid.Column="1"
+                                Content="☆ Kedvencek"
+                                Height="30"
+                                Margin="3,0,0,0"
+                                ToolTip="Csak a kedvenc könyvek megjelenítése"
+                                Click="LibraryFavoritesToggleButton_Click"/>
+
+                        </Grid>
 
                         <ComboBox
                             x:Name="LibrarySortComboBox"
@@ -319,6 +346,7 @@
                     <ListBox
                         x:Name="BookList"
                         SelectionChanged="BookList_SelectionChanged"
+                        MouseDoubleClick="BookList_MouseDoubleClick"
                         BorderThickness="0"
                         Background="Transparent"
                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"

@@ -555,6 +555,51 @@ public partial class MainWindow : Window
     }
 
 
+    // =========================================================
+    // KEDVENCEK
+    // =========================================================
+
+    private bool showFavoritesOnly = false;
+
+
+    private void LibraryFavoritesToggleButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        showFavoritesOnly =
+            !showFavoritesOnly;
+
+        LibraryFavoritesToggleButton.Content =
+            showFavoritesOnly
+                ? "★ Kedvencek"
+                : "☆ Kedvencek";
+
+        RefreshLibraryList();
+    }
+
+
+    private void ToggleSelectedBookFavorite()
+    {
+        if (BookList.SelectedItem is not Book book)
+        {
+            return;
+        }
+
+        book.IsFavorite =
+            !book.IsFavorite;
+
+        RefreshLibraryList();
+    }
+
+
+    private void BookList_MouseDoubleClick(
+        object sender,
+        System.Windows.Input.MouseButtonEventArgs e)
+    {
+        ToggleSelectedBookFavorite();
+    }
+
+
     private void RefreshLibraryList()
     {
         if (BookList == null)
@@ -570,6 +615,13 @@ public partial class MainWindow : Window
 
         IEnumerable<Book> filteredBooks =
             books;
+
+        if (showFavoritesOnly)
+        {
+            filteredBooks =
+                filteredBooks.Where(
+                    book => book.IsFavorite);
+        }
 
         if (!string.IsNullOrWhiteSpace(searchText))
         {
