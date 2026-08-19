@@ -859,29 +859,64 @@ public partial class MainWindow : Window
         {
             try
             {
-                var book =
+                var importedBook =
                     importer.ImportEpub(
                         dialog.FileName);
 
-                books.Add(
-                    book);
+                // Az ImportService már kiszűri a Library-ben
+                // létező azonos című és szerzőjű könyvet.
+                // Itt azt is biztosítjuk, hogy a képernyőn lévő
+                // in-memory lista ne kapjon még egy példányt.
+                var existingBook =
+                    books.FirstOrDefault(
+                        b =>
+                            string.Equals(
+                                b.Title,
+                                importedBook.Title,
+                                StringComparison.OrdinalIgnoreCase)
+                            &&
+                            string.Equals(
+                                b.Author,
+                                importedBook.Author,
+                                StringComparison.OrdinalIgnoreCase));
 
-                BookList.Items.Add(
-                    book);
+                Book bookToSelect;
+
+                if (existingBook != null)
+                {
+                    bookToSelect =
+                        existingBook;
+
+                    MessageBox.Show(
+                        "Ez a könyv már szerepel a könyvtárban.",
+                        "Könyv már létezik",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+                else
+                {
+                    books.Add(
+                        importedBook);
+
+                    bookToSelect =
+                        importedBook;
+                }
 
                 RefreshLibraryList();
 
                 BookList.SelectedItem =
-                    book;
+                    bookToSelect;
 
                 BookList.ScrollIntoView(
-                    book);
+                    bookToSelect);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    ex.ToString(),
-                    "EPUB betöltési hiba");
+                    ex.Message,
+                    "EPUB betöltési hiba",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
             }
         }
     }
