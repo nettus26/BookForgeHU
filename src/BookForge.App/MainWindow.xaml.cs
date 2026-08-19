@@ -35,7 +35,7 @@ public sealed class BookProgressTextConverter : IValueConverter
         {
             var countedChapters =
                 book.Chapters
-                    .Where(ChapterRules.IsCountedChapter)
+                    .Where(c => c.CountsAsChapter)
                     .ToList();
 
             var total =
@@ -75,7 +75,7 @@ public sealed class BookProgressPercentConverter : IValueConverter
         {
             var countedChapters =
                 book.Chapters
-                    .Where(ChapterRules.IsCountedChapter)
+                    .Where(c => c.CountsAsChapter)
                     .ToList();
 
             var total =
@@ -103,58 +103,6 @@ public sealed class BookProgressPercentConverter : IValueConverter
         return Binding.DoNothing;
     }
 }
-
-internal static class ChapterRules
-{
-    public static bool IsCountedChapter(
-        Chapter chapter)
-    {
-        if (chapter == null ||
-            string.IsNullOrWhiteSpace(chapter.Title))
-        {
-            return false;
-        }
-
-        var title =
-            chapter.Title.Trim();
-
-        // A számmal kezdődő címek valódi fejezetek.
-        if (title.Length > 0 &&
-            char.IsDigit(title[0]))
-        {
-            return true;
-        }
-
-        // Magyar és angol fejezetjelölések.
-        if (title.Contains(
-                "fejezet",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            title.Contains(
-                "chapter",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            title.Contains(
-                "rész",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            title.Contains(
-                "epilógus",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            title.Contains(
-                "epilogue",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        // Például a "Nova" jellegű külön elem
-        // nem számít olvasandó fejezetnek.
-        return false;
-    }
-}
-
 
 public partial class MainWindow : Window
 {
@@ -846,12 +794,19 @@ public partial class MainWindow : Window
     private static int GetReadingStatus(
         Book book)
     {
+        var countedChapters =
+            book.Chapters?
+                .Where(
+                    chapter => chapter.CountsAsChapter)
+                .ToList()
+            ?? new List<Chapter>();
+
         var total =
-            book.Chapters?.Count ?? 0;
+            countedChapters.Count;
 
         var read =
-            book.Chapters?.Count(
-                chapter => chapter.IsRead) ?? 0;
+            countedChapters.Count(
+                chapter => chapter.IsRead);
 
         if (total == 0 ||
             read == 0)
@@ -871,12 +826,19 @@ public partial class MainWindow : Window
     private static int GetInProgressSortValue(
         Book book)
     {
+        var countedChapters =
+            book.Chapters?
+                .Where(
+                    chapter => chapter.CountsAsChapter)
+                .ToList()
+            ?? new List<Chapter>();
+
         var total =
-            book.Chapters?.Count ?? 0;
+            countedChapters.Count;
 
         var read =
-            book.Chapters?.Count(
-                chapter => chapter.IsRead) ?? 0;
+            countedChapters.Count(
+                chapter => chapter.IsRead);
 
         if (total > 0 &&
             read > 0 &&
@@ -898,12 +860,19 @@ public partial class MainWindow : Window
     private static int GetCompletedSortValue(
         Book book)
     {
+        var countedChapters =
+            book.Chapters?
+                .Where(
+                    chapter => chapter.CountsAsChapter)
+                .ToList()
+            ?? new List<Chapter>();
+
         var total =
-            book.Chapters?.Count ?? 0;
+            countedChapters.Count;
 
         var read =
-            book.Chapters?.Count(
-                chapter => chapter.IsRead) ?? 0;
+            countedChapters.Count(
+                chapter => chapter.IsRead);
 
         return total > 0 &&
                read == total
@@ -1206,18 +1175,12 @@ public partial class MainWindow : Window
     private void UpdateBookStatistics(
         Book book)
     {
-        var countedChapters =
-            book.Chapters?
-                .Where(ChapterRules.IsCountedChapter)
-                .ToList()
-            ?? new List<Chapter>();
-
         var totalChapters =
-            countedChapters.Count;
+            book.Chapters?.Count ?? 0;
 
         var readChapters =
-            countedChapters.Count(
-                chapter => chapter.IsRead);
+            book.Chapters?.Count(
+                chapter => chapter.IsRead) ?? 0;
 
         BookChapterCountText.Text =
             totalChapters.ToString();

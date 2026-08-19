@@ -146,9 +146,6 @@ public class EpubReaderV2 : IEpubReader
         var chapterLoader =
             new ChapterLoader();
 
-        var titleResolver =
-            new ChapterTitleResolver();
-
         var contentDirectory =
             GetDirectory(contentPath);
 
@@ -188,19 +185,11 @@ public class EpubReaderV2 : IEpubReader
                     reader.ReadToEnd();
             }
 
-            // ============================
-            // KÉPEK
-            // ============================
-
             html =
                 EmbedImages(
                     html,
                     chapterPath,
                     archive);
-
-            // ============================
-            // EPUB SAJÁT CSS
-            // ============================
 
             html =
                 EmbedStylesheets(
@@ -208,37 +197,81 @@ public class EpubReaderV2 : IEpubReader
                     chapterPath,
                     archive);
 
-            // ============================
-            // BELSŐ EPUB LINKEK
-            // ============================
-
             html =
                 ConvertInternalLinks(
                     html,
                     chapterPath);
 
-            Debug.WriteLine(
-                $"EPUB | Fejezet: {chapterPath}");
-
-            Debug.WriteLine(
-                $"EPUB | Eredeti Href: {href}");
-
-            Debug.WriteLine(
-                $"EPUB | Normalizált útvonal: {chapterPath}");
-
-            Debug.WriteLine(
-                $"EPUB | HTML hossz: {html.Length}");
-
-            // A tényleges XHTML-tartalom legyen az elsődleges
-            // forrás a fejezet címéhez. Az EPUB TOC/NCX címe
-            // csak tartalék, mert sok könyvnél rövidített vagy
-            // eltérő címeket tartalmaz.
             // =====================================================
-            // FEJEZETCÍM
+            // EGY XHTML-FÁJLBAN TÁROLT TÖBB FEJEZET
             // =====================================================
-            // Elsőként a fejezet saját HTML-címét keressük.
-            // Sok EPUB-ban a <title> elem a teljes könyv címe,
-            // ezért azt nem használjuk közvetlenül fejezetcímként.
+            // Egyes EPUB-oknál a teljes könyv egyetlen XHTML-fájlban
+            // van, a TOC pedig #fragment célpontokkal jelöli az
+            // egyes fejezeteket. A korábbi kód ilyenkor csak 1
+            // fejezetet hozott létre.
+            var tocEntries =
+                GetTocEntriesForChapter(
+                    toc,
+                    chapterPath);
+
+            if (tocEntries.Count > 1 &&
+                tocEntries.Any(
+                    item => !string.IsNullOrWhiteSpace(
+                        item.Fragment)))
+            {
+                var bodyHtml =
+                    ExtractBodyContent(
+                        html);
+
+                var sections =
+                    SplitHtmlByTocFragments(
+                        bodyHtml,
+                        tocEntries);
+
+                foreach (var section in sections)
+                {
+                    var title =
+                        section.Title.Trim();
+
+                    if (string.IsNullOrWhiteSpace(
+                        title))
+                    {
+                        continue;
+                    }
+
+                    var chapter =
+                        chapterLoader.Load(
+                            title,
+                            section.Html,
+                            order);
+
+                    chapter.CountsAsChapter =
+                        IsCountedChapterTitle(
+                            title,
+                            true);
+
+                    chapter.FilePath =
+                        string.IsNullOrWhiteSpace(
+                            section.Fragment)
+                            ? chapterPath
+                            : $"{chapterPath}#{section.Fragment}";
+
+                    chapter.Href =
+                        chapter.FilePath;
+
+                    book.Chapters.Add(
+                        chapter);
+
+                    order++;
+                }
+
+                continue;
+            }
+
+            // =====================================================
+            // HAGYOMÁNYOS EPUB: 1 XHTML = 1 FEJEZET
+            // =====================================================
+
             var htmlTitle =
                 ExtractChapterTitle(
                     html);
@@ -248,53 +281,348 @@ public class EpubReaderV2 : IEpubReader
                     toc,
                     chapterPath);
 
-            var title =
-                !string.IsNullOrWhiteSpace(htmlTitle)
+            var titleSingle =
+                !string.IsNullOrWhiteSpace(
+                    htmlTitle)
                     ? htmlTitle
-                    : !string.IsNullOrWhiteSpace(tocTitle)
+                    : !string.IsNullOrWhiteSpace(
+                        tocTitle)
                         ? tocTitle
                         : string.Empty;
 
-            // Ha az EPUB spine-ben olyan XHTML-oldal van, amelynek
-            // nincs saját fejezetcíme és a tartalomjegyzékben sem
-            // szerepel, azt nem tekintjük olvasási fejezetnek.
-            // Így nem kerülnek a listába mesterséges "Chapter X"
-            // elemek (pl. borító, üres köztes oldal vagy technikai oldal).
-            if (string.IsNullOrWhiteSpace(title))
+            if (string.IsNullOrWhiteSpace(
+                titleSingle))
             {
                 continue;
             }
 
-            var chapter =
+            var chapterSingle =
                 chapterLoader.Load(
-                    title,
+                    titleSingle,
                     html,
                     order);
 
-            // A fejezetcím alapján csak a számozott fejezeteket és
-            // az epilógusokat számítjuk valódi fejezetnek.
-            // A nem számozott kiegészítő részek (pl. "Nova")
-            // továbbra is megmaradnak és olvashatók.
-            chapter.CountsAsChapter =
+            chapterSingle.CountsAsChapter =
                 IsCountedChapterTitle(
-                    title);
+                    titleSingle,
+                    false);
 
-            chapter.FilePath =
+            chapterSingle.FilePath =
                 chapterPath;
 
-            // FONTOS:
-            // A Href is a normalizált, teljes EPUB útvonal legyen.
-            // Így a különböző relatív útvonalakat használó EPUB-ok
-            // esetében is megbízhatóan össze tudjuk párosítani
-            // a fejezeteket és a TOC célpontokat.
-            chapter.Href =
+            chapterSingle.Href =
                 chapterPath;
 
             book.Chapters.Add(
-                chapter);
+                chapterSingle);
 
             order++;
         }
+    }
+
+
+    // =========================================================
+    // TOC CÉLPONTOK EGY XHTML-FÁJLHOZ
+    // =========================================================
+
+    private sealed class TocTarget
+    {
+        public string Path { get; init; } = string.Empty;
+
+        public string Fragment { get; init; } = string.Empty;
+
+        public string Title { get; init; } = string.Empty;
+    }
+
+
+    private static List<TocTarget> GetTocEntriesForChapter(
+        Dictionary<string, string> toc,
+        string chapterPath)
+    {
+        var normalizedChapterPath =
+            NormalizePath(
+                chapterPath);
+
+        return toc
+            .Select(
+                item =>
+                {
+                    var key =
+                        item.Key ?? string.Empty;
+
+                    var fragment =
+                        string.Empty;
+
+                    var fragmentIndex =
+                        key.IndexOf('#');
+
+                    if (fragmentIndex >= 0)
+                    {
+                        fragment =
+                            key[(fragmentIndex + 1)..];
+
+                        key =
+                            key[..fragmentIndex];
+                    }
+
+                    return new TocTarget
+                    {
+                        Path =
+                            NormalizePath(
+                                key),
+
+                        Fragment =
+                            fragment,
+
+                        Title =
+                            item.Value?.Trim()
+                            ?? string.Empty
+                    };
+                })
+            .Where(
+                item =>
+                    string.Equals(
+                        item.Path,
+                        normalizedChapterPath,
+                        StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+
+    // =========================================================
+    // XHTML BODY TARTALMÁNAK KINYERÉSE
+    // =========================================================
+
+    private static string ExtractBodyContent(
+        string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return string.Empty;
+        }
+
+        var bodyMatch =
+            Regex.Match(
+                html,
+                @"<body\b[^>]*>(.*?)</body>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        if (bodyMatch.Success)
+        {
+            return bodyMatch.Groups[1].Value;
+        }
+
+        return html;
+    }
+
+
+    // =========================================================
+    // FEJEZETEK FELDARABOLÁSA TOC FRAGMENTEK ALAPJÁN
+    // =========================================================
+
+    private static List<(string Title, string Fragment, string Html)>
+        SplitHtmlByTocFragments(
+            string bodyHtml,
+            List<TocTarget> tocEntries)
+    {
+        var result =
+            new List<(string Title, string Fragment, string Html)>();
+
+        if (string.IsNullOrWhiteSpace(
+            bodyHtml))
+        {
+            return result;
+        }
+
+        var located =
+            new List<(TocTarget Target, int Position)>();
+
+        foreach (var entry in tocEntries)
+        {
+            if (string.IsNullOrWhiteSpace(
+                entry.Fragment))
+            {
+                continue;
+            }
+
+            var position =
+                FindFragmentPosition(
+                    bodyHtml,
+                    entry.Fragment);
+
+            if (position >= 0)
+            {
+                located.Add(
+                    (entry, position));
+            }
+        }
+
+        located =
+            located
+                .OrderBy(
+                    item => item.Position)
+                .ToList();
+
+        for (var i = 0;
+             i < located.Count;
+             i++)
+        {
+            var current =
+                located[i];
+
+            var start =
+                current.Position;
+
+            var end =
+                i + 1 < located.Count
+                    ? located[i + 1].Position
+                    : bodyHtml.Length;
+
+            if (end <= start)
+            {
+                continue;
+            }
+
+            var sectionHtml =
+                bodyHtml[
+                    start..end];
+
+            result.Add(
+                (
+                    current.Target.Title,
+                    current.Target.Fragment,
+                    sectionHtml));
+        }
+
+        return result;
+    }
+
+
+    private static int FindFragmentPosition(
+        string html,
+        string fragment)
+    {
+        if (string.IsNullOrWhiteSpace(
+            html)
+            ||
+            string.IsNullOrWhiteSpace(
+                fragment))
+        {
+            return -1;
+        }
+
+        var encodedFragment =
+            Regex.Escape(
+                Uri.UnescapeDataString(
+                    fragment));
+
+        var pattern =
+            $@"<(?:[a-zA-Z][a-zA-Z0-9:_-]*)\b[^>]*\b(?:id|name)\s*=\s*[""']{encodedFragment}[""'][^>]*>";
+
+        var match =
+            Regex.Match(
+                html,
+                pattern,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        return match.Success
+            ? match.Index
+            : -1;
+    }
+
+
+    // =========================================================
+    // FEJEZETTÍPUS MEGHATÁROZÁSA
+    // =========================================================
+
+    private static bool IsCountedChapterTitle(
+        string title,
+        bool cameFromTocFragment)
+    {
+        if (string.IsNullOrWhiteSpace(
+            title))
+        {
+            return false;
+        }
+
+        var normalized =
+            title.Trim();
+
+        var excludedTitles =
+            new[]
+            {
+                "cover",
+                "borító",
+                "indítás",
+                "előszó",
+                "bevezetés",
+                "introduction",
+                "table of contents",
+                "contents",
+                "tartalomjegyzék",
+                "ajánlás",
+                "ajánló",
+                "lejátszási lista",
+                "playlist",
+                "copyright",
+                "köszönet",
+                "köszönetnyilvánítás",
+                "acknowledgments",
+                "acknowledgements",
+                "a sorozat korábbi kötetei",
+                "previous books",
+                "also by",
+                "fülszöveg"
+            };
+
+        if (excludedTitles.Any(
+            value =>
+                normalized.Equals(
+                    value,
+                    StringComparison.OrdinalIgnoreCase)
+                ||
+                normalized.StartsWith(
+                    value + " ",
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        // A korábbi tesztkönyvben ez kiegészítő rész.
+        if (normalized.Equals(
+            "Nova",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (Regex.IsMatch(
+            normalized,
+            @"^\d+\b"))
+        {
+            return true;
+        }
+
+        if (Regex.IsMatch(
+            normalized,
+            @"(?i)\b(fejezet|rész)\b"))
+        {
+            return true;
+        }
+
+        if (Regex.IsMatch(
+            normalized,
+            @"(?i)\bepilógus\b"))
+        {
+            return true;
+        }
+
+        // Fragmentből származó cím: ilyen formát használ a
+        // "Where Did You Go?" típusú EPUB, ahol a fejezetek
+        // karakter/POV nevei (pl. Caly, Mendax, Eli).
+        return cameFromTocFragment;
     }
 
 
@@ -317,7 +645,7 @@ public class EpubReaderV2 : IEpubReader
         // "1. fejezet", "3 ELI", "12. rész", stb.
         if (Regex.IsMatch(
             normalized,
-            @"^\\d+\\b"))
+            @"^\d+\b"))
         {
             return true;
         }
@@ -326,7 +654,7 @@ public class EpubReaderV2 : IEpubReader
         // "Első fejezet", "TIZENKILENCEDIK FEJEZET", stb.
         if (Regex.IsMatch(
             normalized,
-            @"(?i)\\b(fejezet|rész)\\b"))
+            @"(?i)\b(fejezet|rész)\b"))
         {
             return true;
         }
@@ -334,7 +662,7 @@ public class EpubReaderV2 : IEpubReader
         // Az epilógusok maradjanak a valódi olvasási egységek között.
         if (Regex.IsMatch(
             normalized,
-            @"(?i)\\bepilógus\\b"))
+            @"(?i)\bepilógus\b"))
         {
             return true;
         }
@@ -1188,9 +1516,15 @@ public class EpubReaderV2 : IEpubReader
         foreach (var item in parsed)
         {
             var path =
-                ResolvePath(
+                ResolveTocPath(
                     tocDirectory,
                     item.Key);
+
+            if (string.IsNullOrWhiteSpace(
+                path))
+            {
+                continue;
+            }
 
             target[path] =
                 item.Value;
@@ -1202,11 +1536,25 @@ public class EpubReaderV2 : IEpubReader
         Dictionary<string, string> toc,
         string chapterPath)
     {
-        if (toc.TryGetValue(
-            chapterPath,
-            out var exact))
+        var exact =
+            toc.FirstOrDefault(
+                item =>
+                    string.Equals(
+                        NormalizePath(
+                            RemoveFragment(
+                                item.Key)),
+                        NormalizePath(
+                            chapterPath),
+                        StringComparison.OrdinalIgnoreCase)
+                    &&
+                    string.IsNullOrWhiteSpace(
+                        GetFragment(
+                            item.Key)));
+
+        if (!string.IsNullOrWhiteSpace(
+            exact.Value))
         {
-            return exact;
+            return exact.Value;
         }
 
         var fileName =
@@ -1221,9 +1569,14 @@ public class EpubReaderV2 : IEpubReader
                     item =>
                         string.Equals(
                             Path.GetFileName(
-                                item.Key),
+                                RemoveFragment(
+                                    item.Key)),
                             fileName,
-                            StringComparison.OrdinalIgnoreCase));
+                            StringComparison.OrdinalIgnoreCase)
+                        &&
+                        string.IsNullOrWhiteSpace(
+                            GetFragment(
+                                item.Key)));
 
             if (!string.IsNullOrWhiteSpace(
                 match.Value))
@@ -1233,6 +1586,78 @@ public class EpubReaderV2 : IEpubReader
         }
 
         return null;
+    }
+
+
+    private static string ResolveTocPath(
+        string baseDirectory,
+        string href)
+    {
+        href =
+            href
+                .Replace("\\", "/")
+                .Trim();
+
+        var fragment =
+            string.Empty;
+
+        var fragmentIndex =
+            href.IndexOf('#');
+
+        if (fragmentIndex >= 0)
+        {
+            fragment =
+                href[fragmentIndex..];
+
+            href =
+                href[..fragmentIndex];
+        }
+
+        var resolved =
+            ResolvePath(
+                baseDirectory,
+                href);
+
+        return string.IsNullOrWhiteSpace(
+            fragment)
+            ? resolved
+            : resolved + fragment;
+    }
+
+
+    private static string RemoveFragment(
+        string path)
+    {
+        if (string.IsNullOrWhiteSpace(
+            path))
+        {
+            return string.Empty;
+        }
+
+        var index =
+            path.IndexOf('#');
+
+        return index >= 0
+            ? path[..index]
+            : path;
+    }
+
+
+    private static string GetFragment(
+        string path)
+    {
+        if (string.IsNullOrWhiteSpace(
+            path))
+        {
+            return string.Empty;
+        }
+
+        var index =
+            path.IndexOf('#');
+
+        return index >= 0
+            ? path[(index + 1)..]
+            : string.Empty;
     }
 
 
