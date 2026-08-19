@@ -9,6 +9,10 @@ public class Chapter
     // Fejezet sorrendje a könyvben
     public int Order { get; set; }
 
+    // Meghatározza, hogy ez a rész beleszámít-e
+    // a fejezetszámba és az olvasási haladásba.
+    public bool CountsAsChapter { get; set; } = true;
+
     // EPUB fájl adatok
     public string FilePath { get; set; } = string.Empty;
 
@@ -19,6 +23,7 @@ public class Chapter
 
     // Eredeti EPUB/XHTML tartalom
     public string HtmlContent { get; set; } = string.Empty;
+
     // Segéd adatok
     public int WordCount { get; set; }
 

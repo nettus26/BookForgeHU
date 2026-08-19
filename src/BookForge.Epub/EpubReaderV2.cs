@@ -233,10 +233,15 @@ public class EpubReaderV2 : IEpubReader
             // forrás a fejezet címéhez. Az EPUB TOC/NCX címe
             // csak tartalék, mert sok könyvnél rövidített vagy
             // eltérő címeket tartalmaz.
-            var resolvedTitle =
-                titleResolver.Resolve(
-                    html,
-                    string.Empty);
+            // =====================================================
+            // FEJEZETCÍM
+            // =====================================================
+            // Elsőként a fejezet saját HTML-címét keressük.
+            // Sok EPUB-ban a <title> elem a teljes könyv címe,
+            // ezért azt nem használjuk közvetlenül fejezetcímként.
+            var htmlTitle =
+                ExtractChapterTitle(
+                    html);
 
             var tocTitle =
                 FindTocTitle(
@@ -244,17 +249,35 @@ public class EpubReaderV2 : IEpubReader
                     chapterPath);
 
             var title =
-                !string.IsNullOrWhiteSpace(resolvedTitle)
-                    ? resolvedTitle
+                !string.IsNullOrWhiteSpace(htmlTitle)
+                    ? htmlTitle
                     : !string.IsNullOrWhiteSpace(tocTitle)
                         ? tocTitle
-                        : $"Chapter {order}";
+                        : string.Empty;
+
+            // Ha az EPUB spine-ben olyan XHTML-oldal van, amelynek
+            // nincs saját fejezetcíme és a tartalomjegyzékben sem
+            // szerepel, azt nem tekintjük olvasási fejezetnek.
+            // Így nem kerülnek a listába mesterséges "Chapter X"
+            // elemek (pl. borító, üres köztes oldal vagy technikai oldal).
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                continue;
+            }
 
             var chapter =
                 chapterLoader.Load(
                     title,
                     html,
                     order);
+
+            // A fejezetcím alapján csak a számozott fejezeteket és
+            // az epilógusokat számítjuk valódi fejezetnek.
+            // A nem számozott kiegészítő részek (pl. "Nova")
+            // továbbra is megmaradnak és olvashatók.
+            chapter.CountsAsChapter =
+                IsCountedChapterTitle(
+                    title);
 
             chapter.FilePath =
                 chapterPath;
@@ -272,6 +295,127 @@ public class EpubReaderV2 : IEpubReader
 
             order++;
         }
+    }
+
+
+    // =========================================================
+    // FEJEZETTÍPUS MEGHATÁROZÁSA
+    // =========================================================
+
+    private static bool IsCountedChapterTitle(
+        string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        var normalized =
+            title.Trim();
+
+        // Számmal kezdődő cím:
+        // "1. fejezet", "3 ELI", "12. rész", stb.
+        if (Regex.IsMatch(
+            normalized,
+            @"^\\d+\\b"))
+        {
+            return true;
+        }
+
+        // Szövegesen kiírt fejezetszám:
+        // "Első fejezet", "TIZENKILENCEDIK FEJEZET", stb.
+        if (Regex.IsMatch(
+            normalized,
+            @"(?i)\\b(fejezet|rész)\\b"))
+        {
+            return true;
+        }
+
+        // Az epilógusok maradjanak a valódi olvasási egységek között.
+        if (Regex.IsMatch(
+            normalized,
+            @"(?i)\\bepilógus\\b"))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+
+    // =========================================================
+    // FEJEZETCÍM KINYERÉSE AZ XHTML-BŐL
+    // =========================================================
+
+    private static string? ExtractChapterTitle(
+        string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+
+        // A fejezet saját látható címe elsőbbséget élvez.
+        // A <h1>-<h6> elemeket sorrendben vizsgáljuk.
+        var headingMatch =
+            Regex.Match(
+                html,
+                @"<h[1-6]\b[^>]*>(.*?)</h[1-6]>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        if (headingMatch.Success)
+        {
+            var heading =
+                CleanHtmlText(
+                    headingMatch.Groups[1].Value);
+
+            if (!string.IsNullOrWhiteSpace(heading))
+            {
+                return heading;
+            }
+        }
+
+        return null;
+    }
+
+
+    // =========================================================
+    // HTML SZÖVEG TISZTÍTÁSA
+    // =========================================================
+
+    private static string CleanHtmlText(
+        string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return string.Empty;
+        }
+
+        var text =
+            Regex.Replace(
+                html,
+                @"<br\s*/?>",
+                " ",
+                RegexOptions.IgnoreCase);
+
+        text =
+            Regex.Replace(
+                text,
+                @"<[^>]+>",
+                string.Empty,
+                RegexOptions.Singleline);
+
+        text =
+            System.Net.WebUtility.HtmlDecode(
+                text);
+
+        return
+            Regex.Replace(
+                    text,
+                    @"\s+",
+                    " ")
+                .Trim();
     }
 
 

@@ -33,8 +33,17 @@ public sealed class BookProgressTextConverter : IValueConverter
         if (value is Book book &&
             book.Chapters != null)
         {
-            var total = book.Chapters.Count;
-            var read = book.Chapters.Count(c => c.IsRead);
+            var countedChapters =
+                book.Chapters
+                    .Where(ChapterRules.IsCountedChapter)
+                    .ToList();
+
+            var total =
+                countedChapters.Count;
+
+            var read =
+                countedChapters.Count(
+                    c => c.IsRead);
 
             return $"{read} / {total} fejezet";
         }
@@ -64,11 +73,22 @@ public sealed class BookProgressPercentConverter : IValueConverter
             book.Chapters != null &&
             book.Chapters.Count > 0)
         {
-            var total = book.Chapters.Count;
-            var read = book.Chapters.Count(c => c.IsRead);
+            var countedChapters =
+                book.Chapters
+                    .Where(ChapterRules.IsCountedChapter)
+                    .ToList();
 
-            return Math.Round(
-                read * 100.0 / total);
+            var total =
+                countedChapters.Count;
+
+            var read =
+                countedChapters.Count(
+                    c => c.IsRead);
+
+            return total > 0
+                ? Math.Round(
+                    read * 100.0 / total)
+                : 0.0;
         }
 
         return 0.0;
@@ -83,6 +103,58 @@ public sealed class BookProgressPercentConverter : IValueConverter
         return Binding.DoNothing;
     }
 }
+
+internal static class ChapterRules
+{
+    public static bool IsCountedChapter(
+        Chapter chapter)
+    {
+        if (chapter == null ||
+            string.IsNullOrWhiteSpace(chapter.Title))
+        {
+            return false;
+        }
+
+        var title =
+            chapter.Title.Trim();
+
+        // A számmal kezdődő címek valódi fejezetek.
+        if (title.Length > 0 &&
+            char.IsDigit(title[0]))
+        {
+            return true;
+        }
+
+        // Magyar és angol fejezetjelölések.
+        if (title.Contains(
+                "fejezet",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            title.Contains(
+                "chapter",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            title.Contains(
+                "rész",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            title.Contains(
+                "epilógus",
+                StringComparison.OrdinalIgnoreCase)
+            ||
+            title.Contains(
+                "epilogue",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Például a "Nova" jellegű külön elem
+        // nem számít olvasandó fejezetnek.
+        return false;
+    }
+}
+
 
 public partial class MainWindow : Window
 {
@@ -994,13 +1066,43 @@ public partial class MainWindow : Window
             return;
         }
 
+        OpenBook(
+            book);
+    }
+
+
+    // =========================================================
+    // KÖNYV MEGNYITÁSA AZ OLVASÓBAN
+    // =========================================================
+
+    private void OpenBook(
+        Book book)
+    {
+        if (book == null)
+        {
+            return;
+        }
+
+        // Az előző könyv pozícióját még a váltás előtt mentjük.
         SaveReadingPosition();
+
+        StopReadingPositionTracking();
+
+        restoringReadingPosition =
+            false;
 
         currentBook =
             book;
 
         currentChapter =
             null;
+
+        // A könyv megnyitását azonnal rögzítjük.
+        currentBook.LastOpened =
+            DateTime.Now;
+
+        library.UpdateLastOpened(
+            currentBook);
 
         BookTitleText.Text =
             book.Title;
@@ -1024,23 +1126,49 @@ public partial class MainWindow : Window
         LoadCover(
             book);
 
-
-        // =====================================================
-        // TARTALOMJEGYZÉK
-        // =====================================================
-
         LoadTableOfContents(
             book);
-
-        // =====================================================
-        // FEJEZETLISTA
-        // =====================================================
 
         LoadChapterList(
             book);
 
-        RestoreLastReadingPosition(
-            book);
+        // Ha van mentett hely, azt állítjuk vissza.
+        if (!string.IsNullOrWhiteSpace(
+            book.LastChapterPath))
+        {
+            RestoreLastReadingPosition(
+                book);
+
+            return;
+        }
+
+        // Új könyvnél automatikusan az első fejezet nyílik meg.
+        var firstChapter =
+            book.Chapters?
+                .OrderBy(
+                    chapter => chapter.Order)
+                .FirstOrDefault();
+
+        if (firstChapter == null)
+        {
+            contentViewer.NavigateToString(
+                CreateReaderHtml(
+                    "<p>Ehhez a könyvhöz nem található olvasható fejezet.</p>"));
+
+            return;
+        }
+
+        ChapterList.SelectedItem =
+            firstChapter;
+
+        ChapterList.ScrollIntoView(
+            firstChapter);
+
+        currentChapter =
+            firstChapter;
+
+        ShowChapter(
+            firstChapter);
     }
 
 
@@ -1078,12 +1206,18 @@ public partial class MainWindow : Window
     private void UpdateBookStatistics(
         Book book)
     {
+        var countedChapters =
+            book.Chapters?
+                .Where(ChapterRules.IsCountedChapter)
+                .ToList()
+            ?? new List<Chapter>();
+
         var totalChapters =
-            book.Chapters?.Count ?? 0;
+            countedChapters.Count;
 
         var readChapters =
-            book.Chapters?.Count(
-                chapter => chapter.IsRead) ?? 0;
+            countedChapters.Count(
+                chapter => chapter.IsRead);
 
         BookChapterCountText.Text =
             totalChapters.ToString();
@@ -1309,13 +1443,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        // A Tartalomjegyzék ugyanazokat a feldolgozott
-        // fejezetcímeket használja, mint a Fejezetek lista.
-        // Így nem az EPUB eredeti TOC-címeit (pl. Caly,
-        // Mendax, Eli) jelenítjük meg.
-        // Csak a ténylegesen számozott fejezetek kerüljenek
-        // a Tartalomjegyzékbe. Az EPUB egyéb oldalai, például
-        // "Hová mentél? [Hungarian]", így nem jelennek meg.
+        // A Tartalomjegyzék a feldolgozott fejezetekből készül.
+        // Nem korlátozzuk a címeket számjeggyel kezdődő
+        // fejezetekre, mert sok EPUB-ban a fejezetcímek
+        // nem számozottak.
         var entries =
             book.Chapters
                 .Where(
@@ -1323,9 +1454,10 @@ public partial class MainWindow : Window
                         chapter != null &&
                         !string.IsNullOrWhiteSpace(
                             chapter.Title) &&
-                        Regex.IsMatch(
+                        !string.Equals(
                             chapter.Title.Trim(),
-                            @"^\d{1,4}\b"))
+                            "Cover",
+                            StringComparison.OrdinalIgnoreCase))
                 .OrderBy(
                     chapter => chapter.Order)
                 .Select(

@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using BookForge.Core.Models;
 
 namespace BookForge.Services;
@@ -12,12 +12,6 @@ public class LibraryService
 {
     private readonly string libraryFile =
         "bookforge-library.json";
-
-    private readonly string tempLibraryFile =
-        "bookforge-library.json.tmp";
-
-    private readonly string backupLibraryFile =
-        "bookforge-library.json.bak";
 
 
     // =========================================================
@@ -35,39 +29,119 @@ public class LibraryService
         {
             var json =
                 File.ReadAllText(
-                    libraryFile,
-                    Encoding.UTF8);
+                    libraryFile);
 
-            return
+            var books =
                 JsonSerializer.Deserialize<List<Book>>(
                     json)
                 ?? new List<Book>();
+
+            // A korábban mentett könyvek még nem tartalmazták
+            // a CountsAsChapter mezőt. Ezeknél a bool alapértéke
+            // false lenne, ezért betöltéskor visszaállítjuk a
+            // valódi fejezetek jelölését a cím alapján.
+            MigrateChapterCounting(books);
+
+            return books;
         }
         catch
         {
-            // Ha a fő fájl sérült, megpróbáljuk a biztonsági mentést.
-            if (File.Exists(backupLibraryFile))
-            {
-                try
-                {
-                    var backupJson =
-                        File.ReadAllText(
-                            backupLibraryFile,
-                            Encoding.UTF8);
-
-                    return
-                        JsonSerializer.Deserialize<List<Book>>(
-                            backupJson)
-                        ?? new List<Book>();
-                }
-                catch
-                {
-                    // A mentés sem olvasható.
-                }
-            }
-
             return new List<Book>();
         }
+    }
+
+
+    // =========================================================
+    // KÖNYVEK MENTÉSÉNEK KOMPATIBILITÁSI MIGRÁCIÓJA
+    // =========================================================
+
+    private void MigrateChapterCounting(
+        List<Book> books)
+    {
+        var changed = false;
+
+        foreach (var book in books)
+        {
+            if (book.Chapters == null ||
+                book.Chapters.Count == 0)
+            {
+                continue;
+            }
+
+            // Csak a régi, már mentett könyveknél szükséges.
+            // Ha van legalább egy már helyesen jelölt fejezet,
+            // nem írjuk felül az új EPUB-reader eredményét.
+            if (book.Chapters.Any(
+                c => c.CountsAsChapter))
+            {
+                continue;
+            }
+
+            foreach (var chapter in book.Chapters)
+            {
+                var counted =
+                    IsCountedChapterTitle(
+                        chapter.Title);
+
+                if (chapter.CountsAsChapter != counted)
+                {
+                    chapter.CountsAsChapter =
+                        counted;
+
+                    changed = true;
+                }
+            }
+        }
+
+        if (changed)
+        {
+            Save(books);
+        }
+    }
+
+
+    // =========================================================
+    // FEJEZET CÍME ALAPJÁN SZÁMÍTANDÓ-E
+    // =========================================================
+
+    private static bool IsCountedChapterTitle(
+        string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        var normalized =
+            title.Trim();
+
+        // Számmal kezdődő cím:
+        // "1. fejezet", "3 ELI", "12. rész", stb.
+        if (Regex.IsMatch(
+            normalized,
+            @"^\d+\b"))
+        {
+            return true;
+        }
+
+        // "Első fejezet", "TIZENKILENCEDIK FEJEZET", stb.
+        if (Regex.IsMatch(
+            normalized,
+            @"(?i)\b(fejezet|rész)\b"))
+        {
+            return true;
+        }
+
+        // Az epilógusok számítsanak valódi olvasási egységnek.
+        if (Regex.IsMatch(
+            normalized,
+            @"(?i)\bepilógus\b"))
+        {
+            return true;
+        }
+
+        // Egyéb részek, például "Nova", nem számítanak bele.
+        return false;
     }
 
 
@@ -77,11 +151,6 @@ public class LibraryService
 
     public void AddBook(Book book)
     {
-        if (book == null)
-        {
-            return;
-        }
-
         var books =
             GetBooks();
 
@@ -108,11 +177,6 @@ public class LibraryService
     public Book? FindBook(
         string title)
     {
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            return null;
-        }
-
         var books =
             GetBooks();
 
@@ -131,11 +195,6 @@ public class LibraryService
     public void RemoveBook(
         Book book)
     {
-        if (book == null)
-        {
-            return;
-        }
-
         var books =
             GetBooks();
 
@@ -163,11 +222,6 @@ public class LibraryService
     public void UpdateLastOpened(
         Book book)
     {
-        if (book == null)
-        {
-            return;
-        }
-
         var books =
             GetBooks();
 
@@ -198,11 +252,6 @@ public class LibraryService
         string chapterPath,
         double scrollPosition)
     {
-        if (book == null)
-        {
-            return;
-        }
-
         var books =
             GetBooks();
 
@@ -237,11 +286,6 @@ public class LibraryService
     public Book? GetSavedReadingPosition(
         Book book)
     {
-        if (book == null)
-        {
-            return null;
-        }
-
         var books =
             GetBooks();
 
@@ -263,11 +307,6 @@ public class LibraryService
         double lineSpacing,
         bool darkMode)
     {
-        if (book == null)
-        {
-            return;
-        }
-
         var books =
             GetBooks();
 
@@ -313,9 +352,8 @@ public class LibraryService
         Book book,
         string chapterPath)
     {
-        if (book == null ||
-            string.IsNullOrWhiteSpace(
-                chapterPath))
+        if (string.IsNullOrWhiteSpace(
+            chapterPath))
         {
             return;
         }
@@ -387,7 +425,7 @@ public class LibraryService
 
 
     // =========================================================
-    // BIZTONSÁGOS MENTÉS
+    // MENTÉS
     // =========================================================
 
     private void Save(
@@ -401,43 +439,8 @@ public class LibraryService
                     WriteIndented = true
                 });
 
-        // Először ideiglenes fájlba írunk.
         File.WriteAllText(
-            tempLibraryFile,
-            json,
-            new UTF8Encoding(false));
-
-        // A korábbi mentésből biztonsági másolat készül.
-        if (File.Exists(libraryFile))
-        {
-            try
-            {
-                File.Copy(
-                    libraryFile,
-                    backupLibraryFile,
-                    true);
-            }
-            catch
-            {
-                // A biztonsági másolat hibája önmagában
-                // ne akadályozza meg a normál mentést.
-            }
-        }
-
-        // Az ideiglenes fájlt csak sikeres teljes írás után
-        // tesszük a tényleges könyvtári fájl helyére.
-        try
-        {
-            File.Move(
-                tempLibraryFile,
-                libraryFile,
-                true);
-        }
-        catch
-        {
-            // Ha a csere nem sikerült, a korábbi fájl
-            // megmarad, és a hibát továbbadjuk.
-            throw;
-        }
+            libraryFile,
+            json);
     }
 }
