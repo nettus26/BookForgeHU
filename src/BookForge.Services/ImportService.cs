@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BookForge.Core.Models;
@@ -35,8 +34,7 @@ public class ImportService
     public Book ImportEpub(
         string filePath)
     {
-        if (string.IsNullOrWhiteSpace(
-            filePath))
+        if (string.IsNullOrWhiteSpace(filePath))
         {
             throw new ArgumentException(
                 "Az EPUB fájl elérési útja üres.",
@@ -64,13 +62,54 @@ public class ImportService
         // EPUB BEOLVASÁSA
         // =====================================================
 
-        var book =
-            reader.Load(filePath);
+        Book book;
+
+        try
+        {
+            book =
+                reader.Load(filePath);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException(
+                "Az EPUB könyv nem tölthető be. " +
+                "A fájl sérült lehet, vagy nem megfelelő EPUB-szerkezetű.",
+                ex);
+        }
 
         if (book == null)
         {
             throw new InvalidDataException(
-                "Az EPUB könyv nem tölthető be.");
+                "Az EPUB könyv betöltése üres eredményt adott.");
+        }
+
+
+        // =====================================================
+        // ALAPADATOK ELLENŐRZÉSE
+        // =====================================================
+
+        if (string.IsNullOrWhiteSpace(book.Title))
+        {
+            book.Title =
+                Path.GetFileNameWithoutExtension(filePath);
+        }
+
+        if (string.IsNullOrWhiteSpace(book.Author))
+        {
+            book.Author =
+                "Ismeretlen szerző";
+        }
+
+        if (book.Chapters == null)
+        {
+            throw new InvalidDataException(
+                "Az EPUB nem tartalmaz feldolgozható fejezetlistát.");
+        }
+
+        if (book.Chapters.Count == 0)
+        {
+            throw new InvalidDataException(
+                "Az EPUB nem tartalmaz olvasható fejezetet.");
         }
 
 
@@ -100,9 +139,6 @@ public class ImportService
 
         if (existing != null)
         {
-            // A már meglévő könyv objektumát adjuk vissza,
-            // így az olvasási állapot, kedvenc és beállítások
-            // nem vesznek el újraimportáláskor.
             return existing;
         }
 
@@ -111,8 +147,7 @@ public class ImportService
         // KÖNYV MENTÉSE A LIBRARY-BE
         // =====================================================
 
-        library.AddBook(
-            book);
+        library.AddBook(book);
 
         return book;
     }
