@@ -331,6 +331,49 @@ public partial class MainWindow : Window
             "a {" +
             "color: " + linkColor + ";" +
             "cursor: pointer;" +
+            "text-decoration: none;" +
+            "}" +
+
+            "a:hover {" +
+            "text-decoration: underline;" +
+            "}" +
+
+            ".bookforge-toc {" +
+            "margin: 28px 0 36px 0;" +
+            "padding: 24px 28px;" +
+            "border: 1px solid #d7d7d7;" +
+            "border-radius: 8px;" +
+            "background: " + (darkMode ? "#252525" : "#fafafa") + ";" +
+            "}" +
+
+            ".bookforge-toc-title {" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-size: " + h2Size + "px !important;" +
+            "font-weight: 700;" +
+            "margin: 0 0 18px 0;" +
+            "color: " + headingColor + ";" +
+            "}" +
+
+            ".bookforge-toc a {" +
+            "display: block;" +
+            "padding: 6px 0;" +
+            "color: " + linkColor + ";" +
+            "text-decoration: none;" +
+            "}" +
+
+            ".bookforge-toc a:hover {" +
+            "text-decoration: underline;" +
+            "}" +
+
+            ".bookforge-chapter-number {" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-weight: 700;" +
+            "margin-bottom: 4px;" +
+            "}" +
+
+            ".bookforge-chapter-title {" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-weight: 700;" +
             "}" +
 
             "img {" +

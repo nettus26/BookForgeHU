@@ -1,124 +1,78 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.IO.Compression;
-using System.Linq;
-using System.Text.RegularExpressions;
-using System.Xml.Linq;
-using BookForge.Core.Models;
+﻿using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
 using BookForge.Epub.Interfaces;
 using BookForge.Epub.Parsers;
+using System.IO.Compression;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 namespace BookForge.Epub;
 
+/// <summary>
+/// Az új, moduláris EPUB olvasó.
+/// A régi EpubReader osztályt nem módosítja és nem helyettesíti automatikusan.
+/// </summary>
 public class EpubReaderV2 : IEpubReader
 {
     public Book Load(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
-            throw new ArgumentException(
-                "Az EPUB fájl elérési útja üres.",
-                nameof(filePath));
+            throw new ArgumentException("Az EPUB fájl elérési útja üres.", nameof(filePath));
 
         if (!File.Exists(filePath))
-            throw new FileNotFoundException(
-                "Az EPUB fájl nem található.",
-                filePath);
+            throw new FileNotFoundException("Az EPUB fájl nem található.", filePath);
 
         using var package = new EpubPackage(filePath);
         using var archive = package.Open();
 
-        var contentReader =
-            new EpubContentReader();
+        var contentReader = new EpubContentReader();
 
-        var containerXml =
-            contentReader.ReadEntry(
-                archive,
-                "META-INF/container.xml");
+        // 1. META-INF/container.xml
+        var containerXml = contentReader.ReadEntry(
+            archive,
+            "META-INF/container.xml");
 
-        var containerParser =
-            new ContainerParser();
-
-        var contentPath =
-            containerParser.FindContentPath(
-                containerXml);
+        var containerParser = new ContainerParser();
+        var contentPath = containerParser.FindContentPath(containerXml);
 
         if (string.IsNullOrWhiteSpace(contentPath))
-            throw new InvalidDataException(
-                "Nem található content.opf az EPUB-ban.");
+            throw new InvalidDataException("Nem található content.opf az EPUB-ban.");
 
-        contentPath =
-            NormalizePath(contentPath);
+        contentPath = NormalizePath(contentPath);
 
-        var contentXml =
-            contentReader.ReadEntry(
-                archive,
-                contentPath);
+        // 2. content.opf -> alap könyvadatok
+        var contentXml = contentReader.ReadEntry(
+            archive,
+            contentPath);
 
-        var contentParser =
-            new ContentParser();
+        var contentParser = new ContentParser();
+        var book = contentParser.Parse(contentXml);
 
-        var book =
-            contentParser.Parse(contentXml);
+        book.FilePath = filePath;
 
-        book.FilePath =
-            filePath;
+        // 3. Manifest
+        var manifestParser = new ManifestParser();
+        var manifest = manifestParser.Parse(contentXml);
 
-        // ============================
-        // MANIFEST
-        // ============================
+        // 4. Spine
+        var spineParser = new SpineParser();
+        var spine = spineParser.Parse(contentXml);
 
-        var manifestParser =
-            new ManifestParser();
+        // 5. Borító
+        book.CoverImage = SaveCover(
+            archive,
+            contentXml,
+            manifest,
+            contentPath);
 
-        var manifest =
-            manifestParser.Parse(contentXml);
+        // 6. TOC
+        var toc = LoadTableOfContents(
+            archive,
+            contentXml,
+            manifest,
+            contentPath);
 
-        // ============================
-        // SPINE
-        // ============================
-
-        var spineParser =
-            new SpineParser();
-
-        var spine =
-            spineParser.Parse(contentXml);
-
-        // ============================
-        // BORÍTÓ
-        // ============================
-
-        book.CoverImage =
-            SaveCover(
-                archive,
-                contentXml,
-                manifest,
-                contentPath);
-
-        // ============================
-        // TARTALOMJEGYZÉK
-        // ============================
-
-        var toc =
-            LoadTableOfContents(
-                archive,
-                contentXml,
-                manifest,
-                contentPath);
-
-        // A könyv saját tartalomjegyzékének eltárolása,
-        // hogy a felület később meg tudja jeleníteni.
-        book.TableOfContents =
-            new Dictionary<string, string>(
-                toc,
-                StringComparer.OrdinalIgnoreCase);
-
-        // ============================
-        // FEJEZETEK
-        // ============================
-
+        // 7. Fejezetek
         LoadChapters(
             archive,
             book,
@@ -130,11 +84,6 @@ public class EpubReaderV2 : IEpubReader
         return book;
     }
 
-
-    // =========================================================
-    // FEJEZETEK
-    // =========================================================
-
     private static void LoadChapters(
         ZipArchive archive,
         Book book,
@@ -143,1213 +92,386 @@ public class EpubReaderV2 : IEpubReader
         Dictionary<string, string> toc,
         string contentPath)
     {
-        var chapterLoader =
-            new ChapterLoader();
+        var chapterLoader = new ChapterLoader();
+        var titleResolver = new ChapterTitleResolver();
 
-        var contentDirectory =
-            GetDirectory(contentPath);
-
+        var contentDirectory = GetDirectory(contentPath);
         var order = 1;
 
         foreach (var id in spine)
         {
-            if (!manifest.TryGetValue(
-                    id,
-                    out var href)
-                ||
+            if (!manifest.TryGetValue(id, out var href) ||
                 string.IsNullOrWhiteSpace(href))
             {
                 continue;
             }
 
-            var chapterPath =
-                ResolvePath(
-                    contentDirectory,
-                    href);
-
-            var chapterEntry =
-                FindEntry(
-                    archive,
-                    chapterPath);
+            var chapterPath = ResolvePath(contentDirectory, href);
+            var chapterEntry = FindEntry(archive, chapterPath);
 
             if (chapterEntry == null)
                 continue;
 
             string html;
 
-            using (var reader =
-                   new StreamReader(
-                       chapterEntry.Open()))
+            using (var reader = new StreamReader(chapterEntry.Open()))
             {
-                html =
-                    reader.ReadToEnd();
+                html = reader.ReadToEnd();
             }
 
-            html =
-                EmbedImages(
+            // Először mindig az EPUB saját tartalomjegyzékének címét használjuk.
+            // Csak akkor próbáljuk a HTML-ből kinyerni a címet, ha a TOC-cím
+            // A fejezet valódi címét mindig az XHTML-ből próbáljuk
+            // meghatározni. FONTOS: a resolvernek itt nem adjuk át
+            // fallbackként a könyv címét, mert egyes EPUB-okban a
+            // TOC minden fejezethez magát a könyvcímet adja meg.
+            var resolvedTitle =
+                titleResolver.Resolve(
                     html,
-                    chapterPath,
-                    archive);
+                    string.Empty);
 
-            html =
-                EmbedStylesheets(
-                    html,
-                    chapterPath,
-                    archive);
-
-            html =
-                ConvertInternalLinks(
-                    html,
-                    chapterPath);
-
-            // =====================================================
-            // EGY XHTML-FÁJLBAN TÁROLT TÖBB FEJEZET
-            // =====================================================
-            // Egyes EPUB-oknál a teljes könyv egyetlen XHTML-fájlban
-            // van, a TOC pedig #fragment célpontokkal jelöli az
-            // egyes fejezeteket. A korábbi kód ilyenkor csak 1
-            // fejezetet hozott létre.
-            var tocEntries =
-                GetTocEntriesForChapter(
-                    toc,
-                    chapterPath);
-
-            if (tocEntries.Count > 1 &&
-                tocEntries.Any(
-                    item => !string.IsNullOrWhiteSpace(
-                        item.Fragment)))
+            // A könyv borító- és saját tartalomjegyzék-oldala nem valódi
+            // olvasási fejezet. Egyes EPUB-ok ezeket is a spine-ba teszik.
+            if (IsNonChapterTitle(resolvedTitle) ||
+                IsNonChapterTitle(FindTocTitle(toc, chapterPath)))
             {
-                var bodyHtml =
-                    ExtractBodyContent(
-                        html);
-
-                var sections =
-                    SplitHtmlByTocFragments(
-                        bodyHtml,
-                        tocEntries);
-
-                foreach (var section in sections)
-                {
-                    var title =
-                        section.Title.Trim();
-
-                    if (string.IsNullOrWhiteSpace(
-                        title))
-                    {
-                        continue;
-                    }
-
-                    var chapter =
-                        chapterLoader.Load(
-                            title,
-                            section.Html,
-                            order);
-
-                    chapter.CountsAsChapter =
-                        IsCountedChapterTitle(
-                            title,
-                            true);
-
-                    chapter.FilePath =
-                        string.IsNullOrWhiteSpace(
-                            section.Fragment)
-                            ? chapterPath
-                            : $"{chapterPath}#{section.Fragment}";
-
-                    chapter.Href =
-                        chapter.FilePath;
-
-                    book.Chapters.Add(
-                        chapter);
-
-                    order++;
-                }
-
                 continue;
             }
 
-            // =====================================================
-            // HAGYOMÁNYOS EPUB: 1 XHTML = 1 FEJEZET
-            // =====================================================
-
-            var htmlTitle =
-                ExtractChapterTitle(
-                    html);
+            if (!string.IsNullOrWhiteSpace(resolvedTitle) &&
+                IsGenericTocTitle(
+                    resolvedTitle,
+                    book.Title))
+            {
+                resolvedTitle = null;
+            }
 
             var tocTitle =
                 FindTocTitle(
                     toc,
                     chapterPath);
 
-            var titleSingle =
-                !string.IsNullOrWhiteSpace(
-                    htmlTitle)
-                    ? htmlTitle
-                    : !string.IsNullOrWhiteSpace(
-                        tocTitle)
-                        ? tocTitle
-                        : string.Empty;
-
-            if (string.IsNullOrWhiteSpace(
-                titleSingle))
+            if (!string.IsNullOrWhiteSpace(tocTitle) &&
+                IsGenericTocTitle(
+                    tocTitle,
+                    book.Title))
             {
-                continue;
+                tocTitle = null;
             }
 
-            var chapterSingle =
-                chapterLoader.Load(
-                    titleSingle,
-                    html,
-                    order);
+            // Játékmódosító:
+            // egyes kiadásokban a TOC minden fejezetnél a könyv címét
+            // tartalmazza, miközben az XHTML-ben ott van a valódi
+            // "Tizenkilencedik fejezet" jellegű címsor.
+            // Ilyenkor közvetlenül az XHTML címsorát használjuk.
+            if (IsGameChangerBook(book.Title) &&
+                string.IsNullOrWhiteSpace(resolvedTitle))
+            {
+                resolvedTitle =
+                    ExtractGameChangerChapterTitle(
+                        html,
+                        book.Title);
+            }
 
-            chapterSingle.CountsAsChapter =
-                IsCountedChapterTitle(
-                    titleSingle,
-                    false);
+            var title =
+                !string.IsNullOrWhiteSpace(resolvedTitle)
+                    ? resolvedTitle
+                    : !string.IsNullOrWhiteSpace(tocTitle)
+                        ? tocTitle
+                        : $"Chapter {order}";
 
-            chapterSingle.FilePath =
-                chapterPath;
+            // Egyes EPUB-ok (pl. a Broken Hearts típusú könyvek)
+            // a fejezet tényleges címét képként tartalmazzák
+            // ("CHAPTER SIX", stb.), miközben az XHTML szöveges
+            // címe csak a POV-karakter neve ("Nova", "Jace").
+            // Ilyenkor a karakternevet nem használjuk TOC-címként.
+            // A "Megtört szívek" EPUB-ban a fejezet képcíme mellett
+            // a szöveges cím csak a narrátor neve (Nova/Jace).
+            // Ennél a konkrét könyvnél ezt biztosan kezeljük, akkor is,
+            // ha az EPUB XHTML-je az img elemet szokatlan formában írja.
+            if (IsBrokenHeartsBook(book.Title))
+            {
+                // Ennél a könyvnél a valódi fejezetszámot a fejezetoldalban
+                // szereplő címkép fájlneve adja.
+                // Például: 00008.jpeg -> Chapter 8.
+                // A spine/NCX sorrendje ennél az EPUB-nál elcsúszhat, ezért
+                // itt nem az order és nem az NCX sorszáma dönt.
+                var imageChapterNumber =
+                    GetBrokenHeartsImageChapterNumber(html);
 
-            chapterSingle.Href =
-                chapterPath;
+                if (imageChapterNumber.HasValue)
+                {
+                    title = $"Chapter {imageChapterNumber.Value}";
+                }
+                else if (!string.IsNullOrWhiteSpace(tocTitle) &&
+                         Regex.IsMatch(
+                             tocTitle,
+                             @"^Chapter\s+\d+$",
+                             RegexOptions.IgnoreCase))
+                {
+                    title = tocTitle.Trim();
+                }
+                else if (!string.IsNullOrWhiteSpace(tocTitle) &&
+                         Regex.IsMatch(
+                             tocTitle,
+                             @"^Epilogue\s+\d+$|^Epilógus\s+\d+$",
+                             RegexOptions.IgnoreCase))
+                {
+                    title = tocTitle.Trim();
+                }
+                else
+                {
+                    title = $"Chapter {order}";
+                }
+            }
+            else if (ContainsChapterTitleImage(html) &&
+                     LooksLikeShortPovName(title, tocTitle))
+            {
+                title = $"Chapter {order}";
+            }
 
-            book.Chapters.Add(
-                chapterSingle);
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = $"Chapter {order}";
+            }
 
+            // A fejezet XHTML-je az EPUB-on belüli relatív képútvonalakat
+            // tartalmazhatja. A megjelenítő WebView-ban ezekhez nincs mindig
+            // elérhető fájlrendszeres base URL, ezért a fejezet betöltése előtt
+            // az EPUB-ból közvetlenül data URI-ként beágyazzuk a képeket.
+            // Így a fejezeten belüli JPG/PNG képek biztosan megjelennek.
+            html = InlineChapterImages(
+                archive,
+                chapterPath,
+                html);
+
+            var chapter = chapterLoader.Load(
+                title,
+                html,
+                order);
+
+            chapter.FilePath = chapterPath;
+            chapter.Href = href;
+
+            book.Chapters.Add(chapter);
             order++;
         }
     }
 
-
-    // =========================================================
-    // TOC CÉLPONTOK EGY XHTML-FÁJLHOZ
-    // =========================================================
-
-    private sealed class TocTarget
+    private static Dictionary<string, string> LoadTableOfContents(
+        ZipArchive archive,
+        string contentXml,
+        Dictionary<string, string> manifest,
+        string contentPath)
     {
-        public string Path { get; init; } = string.Empty;
+        var result = new Dictionary<string, string>(
+            StringComparer.OrdinalIgnoreCase);
 
-        public string Fragment { get; init; } = string.Empty;
+        var document = XDocument.Parse(contentXml);
+        XNamespace opf = "http://www.idpf.org/2007/opf";
+        var contentDirectory = GetDirectory(contentPath);
 
-        public string Title { get; init; } = string.Empty;
-    }
-
-
-    private static List<TocTarget> GetTocEntriesForChapter(
-        Dictionary<string, string> toc,
-        string chapterPath)
-    {
-        var normalizedChapterPath =
-            NormalizePath(
-                chapterPath);
-
-        return toc
-            .Select(
-                item =>
-                {
-                    var key =
-                        item.Key ?? string.Empty;
-
-                    var fragment =
-                        string.Empty;
-
-                    var fragmentIndex =
-                        key.IndexOf('#');
-
-                    if (fragmentIndex >= 0)
-                    {
-                        fragment =
-                            key[(fragmentIndex + 1)..];
-
-                        key =
-                            key[..fragmentIndex];
-                    }
-
-                    return new TocTarget
-                    {
-                        Path =
-                            NormalizePath(
-                                key),
-
-                        Fragment =
-                            fragment,
-
-                        Title =
-                            item.Value?.Trim()
-                            ?? string.Empty
-                    };
-                })
-            .Where(
-                item =>
-                    string.Equals(
-                        item.Path,
-                        normalizedChapterPath,
-                        StringComparison.OrdinalIgnoreCase))
-            .ToList();
-    }
-
-
-    // =========================================================
-    // XHTML BODY TARTALMÁNAK KINYERÉSE
-    // =========================================================
-
-    private static string ExtractBodyContent(
-        string html)
-    {
-        if (string.IsNullOrWhiteSpace(html))
+        // A Broken Hearts EPUB-nál az EPUB3 NAV gyakran POV-neveket
+        // (Nova/Jace) tartalmaz a valódi fejezetcím helyett.
+        // Ennél a könyvnél ezért kizárólag az NCX valódi
+        // Chapter/Epilogue bejegyzéseit használjuk.
+        if (contentXml.Contains("Megtört szívek", StringComparison.OrdinalIgnoreCase) ||
+            contentXml.Contains("Broken Hearts", StringComparison.OrdinalIgnoreCase))
         {
-            return string.Empty;
-        }
+            string? ncxHref = null;
 
-        var bodyMatch =
-            Regex.Match(
-                html,
-                @"<body\b[^>]*>(.*?)</body>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
+            var spineElement = document
+                .Descendants(opf + "spine")
+                .FirstOrDefault();
 
-        if (bodyMatch.Success)
-        {
-            return bodyMatch.Groups[1].Value;
-        }
+            var tocId = spineElement?.Attribute("toc")?.Value;
 
-        return html;
-    }
-
-
-    // =========================================================
-    // FEJEZETEK FELDARABOLÁSA TOC FRAGMENTEK ALAPJÁN
-    // =========================================================
-
-    private static List<(string Title, string Fragment, string Html)>
-        SplitHtmlByTocFragments(
-            string bodyHtml,
-            List<TocTarget> tocEntries)
-    {
-        var result =
-            new List<(string Title, string Fragment, string Html)>();
-
-        if (string.IsNullOrWhiteSpace(
-            bodyHtml))
-        {
-            return result;
-        }
-
-        var located =
-            new List<(TocTarget Target, int Position)>();
-
-        foreach (var entry in tocEntries)
-        {
-            if (string.IsNullOrWhiteSpace(
-                entry.Fragment))
+            if (!string.IsNullOrWhiteSpace(tocId) &&
+                manifest.TryGetValue(tocId, out var tocHref))
             {
-                continue;
+                ncxHref = tocHref;
             }
 
-            var position =
-                FindFragmentPosition(
-                    bodyHtml,
-                    entry.Fragment);
-
-            if (position >= 0)
+            if (string.IsNullOrWhiteSpace(ncxHref))
             {
-                located.Add(
-                    (entry, position));
-            }
-        }
+                var ncxItem = document
+                    .Descendants(opf + "item")
+                    .FirstOrDefault(item =>
+                        string.Equals(
+                            item.Attribute("media-type")?.Value,
+                            "application/x-dtbncx+xml",
+                            StringComparison.OrdinalIgnoreCase));
 
-        located =
-            located
-                .OrderBy(
-                    item => item.Position)
-                .ToList();
-
-        for (var i = 0;
-             i < located.Count;
-             i++)
-        {
-            var current =
-                located[i];
-
-            var start =
-                current.Position;
-
-            var end =
-                i + 1 < located.Count
-                    ? located[i + 1].Position
-                    : bodyHtml.Length;
-
-            if (end <= start)
-            {
-                continue;
+                ncxHref = ncxItem?.Attribute("href")?.Value;
             }
 
-            var sectionHtml =
-                bodyHtml[
-                    start..end];
-
-            result.Add(
-                (
-                    current.Target.Title,
-                    current.Target.Fragment,
-                    sectionHtml));
-        }
-
-        return result;
-    }
-
-
-    private static int FindFragmentPosition(
-        string html,
-        string fragment)
-    {
-        if (string.IsNullOrWhiteSpace(
-            html)
-            ||
-            string.IsNullOrWhiteSpace(
-                fragment))
-        {
-            return -1;
-        }
-
-        var encodedFragment =
-            Regex.Escape(
-                Uri.UnescapeDataString(
-                    fragment));
-
-        var pattern =
-            $@"<(?:[a-zA-Z][a-zA-Z0-9:_-]*)\b[^>]*\b(?:id|name)\s*=\s*[""']{encodedFragment}[""'][^>]*>";
-
-        var match =
-            Regex.Match(
-                html,
-                pattern,
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        return match.Success
-            ? match.Index
-            : -1;
-    }
-
-
-    // =========================================================
-    // FEJEZETTÍPUS MEGHATÁROZÁSA
-    // =========================================================
-
-    private static bool IsCountedChapterTitle(
-        string title,
-        bool cameFromTocFragment)
-    {
-        if (string.IsNullOrWhiteSpace(
-            title))
-        {
-            return false;
-        }
-
-        var normalized =
-            title.Trim();
-
-        var excludedTitles =
-            new[]
+            if (!string.IsNullOrWhiteSpace(ncxHref))
             {
-                "cover",
-                "borító",
-                "indítás",
-                "előszó",
-                "bevezetés",
-                "introduction",
-                "table of contents",
-                "contents",
-                "tartalomjegyzék",
-                "ajánlás",
-                "ajánló",
-                "lejátszási lista",
-                "playlist",
-                "copyright",
-                "köszönet",
-                "köszönetnyilvánítás",
-                "acknowledgments",
-                "acknowledgements",
-                "a sorozat korábbi kötetei",
-                "previous books",
-                "also by",
-                "fülszöveg"
-            };
-
-        if (excludedTitles.Any(
-            value =>
-                normalized.Equals(
-                    value,
-                    StringComparison.OrdinalIgnoreCase)
-                ||
-                normalized.StartsWith(
-                    value + " ",
-                    StringComparison.OrdinalIgnoreCase)))
-        {
-            return false;
-        }
-
-        // A korábbi tesztkönyvben ez kiegészítő rész.
-        if (normalized.Equals(
-            "Nova",
-            StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (Regex.IsMatch(
-            normalized,
-            @"^\d+\b"))
-        {
-            return true;
-        }
-
-        if (Regex.IsMatch(
-            normalized,
-            @"(?i)\b(fejezet|rész)\b"))
-        {
-            return true;
-        }
-
-        if (Regex.IsMatch(
-            normalized,
-            @"(?i)\bepilógus\b"))
-        {
-            return true;
-        }
-
-        // Fragmentből származó cím: ilyen formát használ a
-        // "Where Did You Go?" típusú EPUB, ahol a fejezetek
-        // karakter/POV nevei (pl. Caly, Mendax, Eli).
-        return cameFromTocFragment;
-    }
-
-
-    // =========================================================
-    // FEJEZETTÍPUS MEGHATÁROZÁSA
-    // =========================================================
-
-    private static bool IsCountedChapterTitle(
-        string title)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-        {
-            return false;
-        }
-
-        var normalized =
-            title.Trim();
-
-        // Számmal kezdődő cím:
-        // "1. fejezet", "3 ELI", "12. rész", stb.
-        if (Regex.IsMatch(
-            normalized,
-            @"^\d+\b"))
-        {
-            return true;
-        }
-
-        // Szövegesen kiírt fejezetszám:
-        // "Első fejezet", "TIZENKILENCEDIK FEJEZET", stb.
-        if (Regex.IsMatch(
-            normalized,
-            @"(?i)\b(fejezet|rész)\b"))
-        {
-            return true;
-        }
-
-        // Az epilógusok maradjanak a valódi olvasási egységek között.
-        if (Regex.IsMatch(
-            normalized,
-            @"(?i)\bepilógus\b"))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-
-    // =========================================================
-    // FEJEZETCÍM KINYERÉSE AZ XHTML-BŐL
-    // =========================================================
-
-    private static string? ExtractChapterTitle(
-        string html)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-        {
-            return null;
-        }
-
-        // A fejezet saját látható címe elsőbbséget élvez.
-        // A <h1>-<h6> elemeket sorrendben vizsgáljuk.
-        var headingMatch =
-            Regex.Match(
-                html,
-                @"<h[1-6]\b[^>]*>(.*?)</h[1-6]>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        if (headingMatch.Success)
-        {
-            var heading =
-                CleanHtmlText(
-                    headingMatch.Groups[1].Value);
-
-            if (!string.IsNullOrWhiteSpace(heading))
-            {
-                return heading;
-            }
-        }
-
-        return null;
-    }
-
-
-    // =========================================================
-    // HTML SZÖVEG TISZTÍTÁSA
-    // =========================================================
-
-    private static string CleanHtmlText(
-        string html)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-        {
-            return string.Empty;
-        }
-
-        var text =
-            Regex.Replace(
-                html,
-                @"<br\s*/?>",
-                " ",
-                RegexOptions.IgnoreCase);
-
-        text =
-            Regex.Replace(
-                text,
-                @"<[^>]+>",
-                string.Empty,
-                RegexOptions.Singleline);
-
-        text =
-            System.Net.WebUtility.HtmlDecode(
-                text);
-
-        return
-            Regex.Replace(
-                    text,
-                    @"\s+",
-                    " ")
-                .Trim();
-    }
-
-
-    // =========================================================
-    // KÉPEK BEÁGYAZÁSA
-    // =========================================================
-
-    private static string EmbedImages(
-        string html,
-        string chapterPath,
-        ZipArchive archive)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-            return html;
-
-        var chapterDirectory =
-            GetDirectory(chapterPath);
-
-        var pattern =
-            @"(<img\b[^>]*?\bsrc\s*=\s*[""'])([^""']+)([""'])";
-
-        return Regex.Replace(
-            html,
-            pattern,
-            match =>
-            {
-                var prefix =
-                    match.Groups[1].Value;
-
-                var imageHref =
-                    match.Groups[2].Value;
-
-                var suffix =
-                    match.Groups[3].Value;
-
-                if (imageHref.StartsWith(
-                        "data:",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                if (imageHref.StartsWith(
-                        "http://",
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    imageHref.StartsWith(
-                        "https://",
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    imageHref.StartsWith(
-                        "//",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                try
-                {
-                    var imagePath =
-                        ResolvePath(
-                            chapterDirectory,
-                            imageHref);
-
-                    var entry =
-                        FindEntry(
-                            archive,
-                            imagePath);
-
-                    if (entry == null)
-                        return match.Value;
-
-                    var extension =
-                        Path.GetExtension(
-                            entry.FullName);
-
-                    var mimeType =
-                        GetImageMimeType(
-                            extension);
-
-                    if (mimeType == null)
-                        return match.Value;
-
-                    using var stream =
-                        entry.Open();
-
-                    using var memory =
-                        new MemoryStream();
-
-                    stream.CopyTo(memory);
-
-                    var base64 =
-                        Convert.ToBase64String(
-                            memory.ToArray());
-
-                    var dataUri =
-                        $"data:{mimeType};base64,{base64}";
-
-                    return
-                        prefix +
-                        dataUri +
-                        suffix;
-                }
-                catch
-                {
-                    return match.Value;
-                }
-            },
-            RegexOptions.IgnoreCase |
-            RegexOptions.Singleline);
-    }
-
-
-    // =========================================================
-    // EPUB CSS BEÁGYAZÁSA
-    // =========================================================
-
-    private static string EmbedStylesheets(
-        string html,
-        string chapterPath,
-        ZipArchive archive)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-            return html;
-
-        var chapterDirectory =
-            GetDirectory(chapterPath);
-
-        var stylesheetPattern =
-            @"(<link\b[^>]*?\brel\s*=\s*[""'][^""']*stylesheet[^""']*[""'][^>]*>)";
-
-        var result =
-            Regex.Replace(
-                html,
-                stylesheetPattern,
-                match =>
-                {
-                    var linkTag =
-                        match.Value;
-
-                    var hrefMatch =
-                        Regex.Match(
-                            linkTag,
-                            @"\bhref\s*=\s*[""']([^""']+)[""']",
-                            RegexOptions.IgnoreCase);
-
-                    if (!hrefMatch.Success)
-                        return linkTag;
-
-                    var href =
-                        hrefMatch.Groups[1].Value;
-
-                    if (href.StartsWith(
-                            "http://",
-                            StringComparison.OrdinalIgnoreCase)
-                        ||
-                        href.StartsWith(
-                            "https://",
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        return linkTag;
-                    }
-
-                    try
-                    {
-                        var cssPath =
-                            ResolvePath(
-                                chapterDirectory,
-                                href);
-
-                        var cssEntry =
-                            FindEntry(
-                                archive,
-                                cssPath);
-
-                        if (cssEntry == null)
-                            return linkTag;
-
-                        string css;
-
-                        using (var reader =
-                               new StreamReader(
-                                   cssEntry.Open()))
-                        {
-                            css =
-                                reader.ReadToEnd();
-                        }
-
-                        css =
-                            EmbedCssImages(
-                                css,
-                                cssPath,
-                                archive);
-
-                        return
-                            $"<style>\n{css}\n</style>";
-                    }
-                    catch
-                    {
-                        return linkTag;
-                    }
-                },
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        return result;
-    }
-
-
-    // =========================================================
-    // CSS-BEN LÉVŐ KÉPEK
-    // =========================================================
-
-    private static string EmbedCssImages(
-        string css,
-        string cssPath,
-        ZipArchive archive)
-    {
-        if (string.IsNullOrWhiteSpace(css))
-            return css;
-
-        var cssDirectory =
-            GetDirectory(cssPath);
-
-        var pattern =
-            @"url\s*\(\s*[""']?([^""')]+)[""']?\s*\)";
-
-        return Regex.Replace(
-            css,
-            pattern,
-            match =>
-            {
-                var imageHref =
-                    match.Groups[1].Value.Trim();
-
-                if (imageHref.StartsWith(
-                        "data:",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                if (imageHref.StartsWith(
-                        "http://",
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    imageHref.StartsWith(
-                        "https://",
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    imageHref.StartsWith(
-                        "//",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                try
-                {
-                    var imagePath =
-                        ResolvePath(
-                            cssDirectory,
-                            imageHref);
-
-                    var entry =
-                        FindEntry(
-                            archive,
-                            imagePath);
-
-                    if (entry == null)
-                        return match.Value;
-
-                    var mimeType =
-                        GetImageMimeType(
-                            Path.GetExtension(
-                                entry.FullName));
-
-                    if (mimeType == null)
-                        return match.Value;
-
-                    using var stream =
-                        entry.Open();
-
-                    using var memory =
-                        new MemoryStream();
-
-                    stream.CopyTo(memory);
-
-                    var base64 =
-                        Convert.ToBase64String(
-                            memory.ToArray());
-
-                    return
-                        $"url(data:{mimeType};base64,{base64})";
-                }
-                catch
-                {
-                    return match.Value;
-                }
-            },
-            RegexOptions.IgnoreCase);
-    }
-
-
-    // =========================================================
-    // BELSŐ EPUB LINKEK
-    // =========================================================
-
-    private static string ConvertInternalLinks(
-        string html,
-        string chapterPath)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-            return html;
-
-        var chapterDirectory =
-            GetDirectory(chapterPath);
-
-        var pattern =
-            @"(<a\b[^>]*?\bhref\s*=\s*[""'])([^""']+)([""'])";
-
-        return Regex.Replace(
-            html,
-            pattern,
-            match =>
-            {
-                var prefix =
-                    match.Groups[1].Value;
-
-                var href =
-                    match.Groups[2].Value;
-
-                var suffix =
-                    match.Groups[3].Value;
-
-                if (href.StartsWith(
-                        "http://",
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    href.StartsWith(
-                        "https://",
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    href.StartsWith(
-                        "mailto:",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                if (href.StartsWith(
-                        "data:",
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return match.Value;
-                }
-
-                if (href.StartsWith("#"))
-                {
-                    return match.Value;
-                }
-
-                var fragment =
-                    "";
-
-                var fragmentIndex =
-                    href.IndexOf('#');
-
-                if (fragmentIndex >= 0)
-                {
-                    fragment =
-                        href[fragmentIndex..];
-
-                    href =
-                        href[..fragmentIndex];
-                }
-
-                if (string.IsNullOrWhiteSpace(href))
-                    return match.Value;
-
-                try
-                {
-                    var targetPath =
-                        ResolvePath(
-                            chapterDirectory,
-                            href);
-
-                    var encodedPath =
-                        Uri.EscapeDataString(
-                            targetPath);
-
-                    return
-                        prefix +
-                        $"bookforge://chapter/{encodedPath}" +
-                        fragment +
-                        suffix;
-                }
-                catch
-                {
-                    return match.Value;
-                }
-            },
-            RegexOptions.IgnoreCase |
-            RegexOptions.Singleline);
-    }
-
-
-    // =========================================================
-    // MIME
-    // =========================================================
-
-    private static string? GetImageMimeType(
-        string extension)
-    {
-        return extension.ToLowerInvariant() switch
-        {
-            ".jpg" => "image/jpeg",
-            ".jpeg" => "image/jpeg",
-            ".png" => "image/png",
-            ".gif" => "image/gif",
-            ".webp" => "image/webp",
-            ".svg" => "image/svg+xml",
-            ".bmp" => "image/bmp",
-            _ => null
-        };
-    }
-
-
-    // =========================================================
-    // TARTALOMJEGYZÉK
-    // =========================================================
-
-    private static Dictionary<string, string>
-        LoadTableOfContents(
-            ZipArchive archive,
-            string contentXml,
-            Dictionary<string, string> manifest,
-            string contentPath)
-    {
-        var result =
-            new Dictionary<string, string>(
-                StringComparer.OrdinalIgnoreCase);
-
-        var document =
-            XDocument.Parse(contentXml);
-
-        XNamespace opf =
-            "http://www.idpf.org/2007/opf";
-
-        var contentDirectory =
-            GetDirectory(contentPath);
-
-        // =====================================================
-        // EPUB 3 NAV
-        // =====================================================
-
-        var navItem =
-            document
-                .Descendants(opf + "item")
-                .FirstOrDefault(item =>
-                    (item.Attribute("properties")?.Value
-                     ?? string.Empty)
-                    .Split(
-                        ' ',
-                        StringSplitOptions.RemoveEmptyEntries)
-                    .Any(p =>
-                        p.Equals(
-                            "nav",
-                            StringComparison.OrdinalIgnoreCase)));
-
-        if (navItem != null)
-        {
-            var navHref =
-                navItem.Attribute("href")?.Value;
-
-            if (!string.IsNullOrWhiteSpace(
-                navHref))
-            {
-                var navPath =
-                    ResolvePath(
-                        contentDirectory,
-                        navHref);
-
-                var navEntry =
-                    FindEntry(
-                        archive,
-                        navPath);
-
-                if (navEntry != null)
-                {
-                    using var reader =
-                        new StreamReader(
-                            navEntry.Open());
-
-                    var navXhtml =
-                        reader.ReadToEnd();
-
-                    var parser =
-                        new TocParser();
-
-                    var parsed =
-                        parser.Parse(
-                            navXhtml);
-
-                    AddNormalizedTocEntries(
-                        result,
-                        parsed,
-                        GetDirectory(
-                            navPath));
-                }
-            }
-        }
-
-        // =====================================================
-        // EPUB 2 NCX
-        // =====================================================
-
-        if (result.Count == 0)
-        {
-            string? ncxHref =
-                null;
-
-            var spineElement =
-                document
-                    .Descendants(opf + "spine")
-                    .FirstOrDefault();
-
-            var tocId =
-                spineElement?
-                    .Attribute("toc")?
-                    .Value;
-
-            if (!string.IsNullOrWhiteSpace(
-                tocId)
-                &&
-                manifest.TryGetValue(
-                    tocId,
-                    out var tocHref))
-            {
-                ncxHref =
-                    tocHref;
-            }
-
-            if (string.IsNullOrWhiteSpace(
-                ncxHref))
-            {
-                var ncxItem =
-                    document
-                        .Descendants(opf + "item")
-                        .FirstOrDefault(item =>
-                            string.Equals(
-                                item.Attribute(
-                                    "media-type")?.Value,
-                                "application/x-dtbncx+xml",
-                                StringComparison.OrdinalIgnoreCase));
-
-                ncxHref =
-                    ncxItem?.Attribute(
-                        "href")?.Value;
-            }
-
-            if (!string.IsNullOrWhiteSpace(
-                ncxHref))
-            {
-                var ncxPath =
-                    ResolvePath(
-                        contentDirectory,
-                        ncxHref);
-
-                var ncxEntry =
-                    FindEntry(
-                        archive,
-                        ncxPath);
+                var ncxPath = ResolvePath(contentDirectory, ncxHref);
+                var ncxEntry = FindEntry(archive, ncxPath);
 
                 if (ncxEntry != null)
                 {
-                    using var reader =
-                        new StreamReader(
-                            ncxEntry.Open());
+                    using var reader = new StreamReader(ncxEntry.Open());
+                    var ncxText = reader.ReadToEnd();
+                    var ncxDocument = XDocument.Parse(ncxText);
+                    XNamespace ncx = "http://www.daisy.org/z3986/2005/ncx/";
 
-                    var ncx =
-                        reader.ReadToEnd();
+                    foreach (var navPoint in ncxDocument.Descendants(ncx + "navPoint"))
+                    {
+                        var label = navPoint
+                            .Element(ncx + "navLabel")?
+                            .Element(ncx + "text")?
+                            .Value?
+                            .Trim();
 
-                    var parser =
-                        new NcxParser();
+                        if (string.IsNullOrWhiteSpace(label))
+                            continue;
 
-                    var parsed =
-                        parser.Parse(
-                            ncx);
+                        var isChapter = Regex.IsMatch(
+                            label,
+                            @"^Chapter\s+\d+$",
+                            RegexOptions.IgnoreCase);
+
+                        var isEpilogue = Regex.IsMatch(
+                            label,
+                            @"^Epilogue\s+\d+$|^Epilógus\s+\d+$",
+                            RegexOptions.IgnoreCase);
+
+                        if (!isChapter && !isEpilogue)
+                            continue;
+
+                        var src = navPoint
+                            .Element(ncx + "content")?
+                            .Attribute("src")?
+                            .Value;
+
+                        if (string.IsNullOrWhiteSpace(src))
+                            continue;
+
+                        var fragmentIndex = src.IndexOf('#');
+                        if (fragmentIndex >= 0)
+                            src = src[..fragmentIndex];
+
+                        var path = ResolvePath(GetDirectory(ncxPath), src);
+
+                        // A TOC-cím itt csak akkor tekinthető véglegesnek,
+                        // ha összeegyezik a fejezetoldal címképével. Ennél
+                        // a könyvnél az NCX sorszáma elcsúszhat a JPG-hez
+                        // képest, ezért a 00008.jpeg -> Chapter 8 szabály
+                        // az elsődleges.
+                        var targetEntry = FindEntry(archive, path);
+                        var normalizedLabel = label;
+
+                        if (targetEntry != null)
+                        {
+                            using var targetReader =
+                                new StreamReader(targetEntry.Open());
+
+                            var targetHtml = targetReader.ReadToEnd();
+                            var imageChapterNumber =
+                                GetBrokenHeartsImageChapterNumber(targetHtml);
+
+                            if (imageChapterNumber.HasValue)
+                            {
+                                normalizedLabel =
+                                    $"Chapter {imageChapterNumber.Value}";
+                            }
+                        }
+
+                        if (!result.ContainsKey(path))
+                            result[path] = normalizedLabel;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        // EPUB 3: az item properties="nav" elem.
+        var navItem = document
+            .Descendants(opf + "item")
+            .FirstOrDefault(item =>
+                (item.Attribute("properties")?.Value ?? string.Empty)
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(p => p.Equals("nav", StringComparison.OrdinalIgnoreCase)));
+
+        if (navItem != null)
+        {
+            var navHref = navItem.Attribute("href")?.Value;
+
+            if (!string.IsNullOrWhiteSpace(navHref))
+            {
+                var navPath = ResolvePath(contentDirectory, navHref);
+                var navEntry = FindEntry(archive, navPath);
+
+                if (navEntry != null)
+                {
+                    using var reader = new StreamReader(navEntry.Open());
+                    var navXhtml = reader.ReadToEnd();
+                    var parser = new TocParser();
+                    var parsed = parser.Parse(navXhtml);
 
                     AddNormalizedTocEntries(
                         result,
                         parsed,
-                        GetDirectory(
-                            ncxPath));
+                        GetDirectory(navPath));
+                }
+            }
+        }
+
+        // EPUB 2 fallback: NCX.
+        if (result.Count == 0)
+        {
+            string? ncxHref = null;
+
+            var spineElement = document
+                .Descendants(opf + "spine")
+                .FirstOrDefault();
+
+            var tocId = spineElement?.Attribute("toc")?.Value;
+
+            if (!string.IsNullOrWhiteSpace(tocId) &&
+                manifest.TryGetValue(tocId, out var tocHref))
+            {
+                ncxHref = tocHref;
+            }
+
+            if (string.IsNullOrWhiteSpace(ncxHref))
+            {
+                var ncxItem = document
+                    .Descendants(opf + "item")
+                    .FirstOrDefault(item =>
+                        string.Equals(
+                            item.Attribute("media-type")?.Value,
+                            "application/x-dtbncx+xml",
+                            StringComparison.OrdinalIgnoreCase));
+
+                ncxHref = ncxItem?.Attribute("href")?.Value;
+            }
+
+            if (!string.IsNullOrWhiteSpace(ncxHref))
+            {
+                var ncxPath = ResolvePath(contentDirectory, ncxHref);
+                var ncxEntry = FindEntry(archive, ncxPath);
+
+                if (ncxEntry != null)
+                {
+                    using var reader = new StreamReader(ncxEntry.Open());
+                    var ncx = reader.ReadToEnd();
+                    var parser = new NcxParser();
+                    var parsed = parser.Parse(ncx);
+
+                    AddNormalizedTocEntries(
+                        result,
+                        parsed,
+                        GetDirectory(ncxPath));
                 }
             }
         }
 
         return result;
     }
-
-
-    // =========================================================
-    // BORÍTÓ
-    // =========================================================
 
     private static string SaveCover(
         ZipArchive archive,
@@ -1357,101 +479,59 @@ public class EpubReaderV2 : IEpubReader
         Dictionary<string, string> manifest,
         string contentPath)
     {
-        var document =
-            XDocument.Parse(
-                contentXml);
+        var document = XDocument.Parse(contentXml);
+        XNamespace opf = "http://www.idpf.org/2007/opf";
 
-        XNamespace opf =
-            "http://www.idpf.org/2007/opf";
+        var contentDirectory = GetDirectory(contentPath);
+        string? coverHref = null;
 
-        var contentDirectory =
-            GetDirectory(
-                contentPath);
-
-        string? coverHref =
-            null;
-
-        var coverItem =
-            document
-                .Descendants(opf + "item")
-                .FirstOrDefault(item =>
-                    (item.Attribute(
-                        "properties")?.Value
-                     ?? string.Empty)
-                    .Split(
-                        ' ',
-                        StringSplitOptions.RemoveEmptyEntries)
-                    .Any(p =>
-                        p.Equals(
-                            "cover-image",
-                            StringComparison.OrdinalIgnoreCase)));
+        // EPUB 3: properties="cover-image"
+        var coverItem = document
+            .Descendants(opf + "item")
+            .FirstOrDefault(item =>
+                (item.Attribute("properties")?.Value ?? string.Empty)
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(p => p.Equals("cover-image", StringComparison.OrdinalIgnoreCase)));
 
         if (coverItem != null)
+            coverHref = coverItem.Attribute("href")?.Value;
+
+        // EPUB 2: <meta name="cover" content="cover-id">
+        if (string.IsNullOrWhiteSpace(coverHref))
         {
-            coverHref =
-                coverItem.Attribute(
-                    "href")?.Value;
-        }
+            var coverMeta = document
+                .Descendants(opf + "meta")
+                .FirstOrDefault(meta =>
+                    string.Equals(
+                        meta.Attribute("name")?.Value,
+                        "cover",
+                        StringComparison.OrdinalIgnoreCase));
 
-        if (string.IsNullOrWhiteSpace(
-            coverHref))
-        {
-            var coverMeta =
-                document
-                    .Descendants(opf + "meta")
-                    .FirstOrDefault(meta =>
-                        string.Equals(
-                            meta.Attribute(
-                                "name")?.Value,
-                            "cover",
-                            StringComparison.OrdinalIgnoreCase));
+            var coverId = coverMeta?.Attribute("content")?.Value;
 
-            var coverId =
-                coverMeta?
-                    .Attribute(
-                        "content")?
-                    .Value;
-
-            if (!string.IsNullOrWhiteSpace(
-                coverId)
-                &&
-                manifest.TryGetValue(
-                    coverId,
-                    out var href))
+            if (!string.IsNullOrWhiteSpace(coverId) &&
+                manifest.TryGetValue(coverId, out var href))
             {
-                coverHref =
-                    href;
+                coverHref = href;
             }
         }
 
-        ZipArchiveEntry? coverEntry =
-            null;
+        ZipArchiveEntry? coverEntry = null;
 
-        if (!string.IsNullOrWhiteSpace(
-            coverHref))
+        if (!string.IsNullOrWhiteSpace(coverHref))
         {
-            var coverPath =
-                ResolvePath(
-                    contentDirectory,
-                    coverHref);
-
-            coverEntry =
-                FindEntry(
-                    archive,
-                    coverPath);
+            var coverPath = ResolvePath(contentDirectory, coverHref);
+            coverEntry = FindEntry(archive, coverPath);
         }
 
+        // Utolsó fallback: fájlnév alapján.
         if (coverEntry == null)
         {
-            coverEntry =
-                archive.Entries
-                    .FirstOrDefault(entry =>
-                        entry.FullName.Contains(
-                            "cover",
-                            StringComparison.OrdinalIgnoreCase)
-                        &&
-                        IsImage(
-                            entry.FullName));
+            coverEntry = archive.Entries.FirstOrDefault(entry =>
+                entry.FullName.Contains(
+                    "cover",
+                    StringComparison.OrdinalIgnoreCase) &&
+                IsImage(entry.FullName));
         }
 
         if (coverEntry == null)
@@ -1459,41 +539,27 @@ public class EpubReaderV2 : IEpubReader
 
         try
         {
-            var coverFolder =
-                Path.Combine(
-                    Environment.GetFolderPath(
-                        Environment.SpecialFolder.ApplicationData),
-                    "BookForge",
-                    "Covers");
+            var coverFolder = Path.Combine(
+                Environment.GetFolderPath(
+                    Environment.SpecialFolder.ApplicationData),
+                "BookForge",
+                "Covers");
 
-            Directory.CreateDirectory(
-                coverFolder);
+            Directory.CreateDirectory(coverFolder);
 
-            var extension =
-                Path.GetExtension(
-                    coverEntry.FullName);
+            var extension = Path.GetExtension(coverEntry.FullName);
 
-            if (string.IsNullOrWhiteSpace(
-                extension))
-            {
-                extension =
-                    ".img";
-            }
+            if (string.IsNullOrWhiteSpace(extension))
+                extension = ".img";
 
-            var savedCover =
-                Path.Combine(
-                    coverFolder,
-                    $"{Guid.NewGuid()}{extension}");
+            var savedCover = Path.Combine(
+                coverFolder,
+                $"{Guid.NewGuid()}{extension}");
 
-            using var source =
-                coverEntry.Open();
+            using var source = coverEntry.Open();
+            using var target = File.Create(savedCover);
 
-            using var target =
-                File.Create(
-                    savedCover);
-
-            source.CopyTo(
-                target);
+            source.CopyTo(target);
 
             return savedCover;
         }
@@ -1503,11 +569,6 @@ public class EpubReaderV2 : IEpubReader
         }
     }
 
-
-    // =========================================================
-    // TOC NORMALIZÁLÁS
-    // =========================================================
-
     private static void AddNormalizedTocEntries(
         Dictionary<string, string> target,
         Dictionary<string, string> parsed,
@@ -1515,73 +576,38 @@ public class EpubReaderV2 : IEpubReader
     {
         foreach (var item in parsed)
         {
-            var path =
-                ResolveTocPath(
-                    tocDirectory,
-                    item.Key);
-
-            if (string.IsNullOrWhiteSpace(
-                path))
-            {
-                continue;
-            }
-
-            target[path] =
-                item.Value;
+            var path = ResolvePath(tocDirectory, item.Key);
+            target[path] = item.Value;
         }
     }
 
-
-    private static string? FindTocTitle(
-        Dictionary<string, string> toc,
-        string chapterPath)
+    private static int? GetBrokenHeartsImageChapterNumber(string html)
     {
-        var exact =
-            toc.FirstOrDefault(
-                item =>
-                    string.Equals(
-                        NormalizePath(
-                            RemoveFragment(
-                                item.Key)),
-                        NormalizePath(
-                            chapterPath),
-                        StringComparison.OrdinalIgnoreCase)
-                    &&
-                    string.IsNullOrWhiteSpace(
-                        GetFragment(
-                            item.Key)));
+        if (string.IsNullOrWhiteSpace(html))
+            return null;
 
-        if (!string.IsNullOrWhiteSpace(
-            exact.Value))
+        // Például:
+        //   00008.jpeg -> Chapter 8
+        //   00009.jpg  -> Chapter 9
+        //
+        // Az első számot a fájlnévből vesszük, nem a spine pozíciójából.
+        var matches = Regex.Matches(
+            html,
+            @"(?:src|data-src)\s*=\s*[""'][^""']*/?(\d{1,4})\.(?:jpe?g|png|webp)(?:[?#][^""']*)?[""']",
+            RegexOptions.IgnoreCase);
+
+        foreach (Match match in matches)
         {
-            return exact.Value;
-        }
+            if (!match.Success)
+                continue;
 
-        var fileName =
-            Path.GetFileName(
-                chapterPath);
-
-        if (!string.IsNullOrWhiteSpace(
-            fileName))
-        {
-            var match =
-                toc.FirstOrDefault(
-                    item =>
-                        string.Equals(
-                            Path.GetFileName(
-                                RemoveFragment(
-                                    item.Key)),
-                            fileName,
-                            StringComparison.OrdinalIgnoreCase)
-                        &&
-                        string.IsNullOrWhiteSpace(
-                            GetFragment(
-                                item.Key)));
-
-            if (!string.IsNullOrWhiteSpace(
-                match.Value))
+            if (int.TryParse(
+                    match.Groups[1].Value,
+                    out var number) &&
+                number > 0 &&
+                number < 1000)
             {
-                return match.Value;
+                return number;
             }
         }
 
@@ -1589,252 +615,506 @@ public class EpubReaderV2 : IEpubReader
     }
 
 
-    private static string ResolveTocPath(
-        string baseDirectory,
-        string href)
+    private static bool IsBrokenHeartsPovTitle(string? title)
     {
-        href =
-            href
-                .Replace("\\", "/")
-                .Trim();
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
 
-        var fragment =
-            string.Empty;
+        // Az EPUB-ok néha nem látható Unicode karaktert is tesznek
+        // a név mellé. Ezeket levesszük, hogy a Nova/Jace felismerés
+        // ne tudjon egyetlen fejezetnél sem elbukni.
+        var normalized = title
+            .Replace("\u200B", string.Empty)
+            .Replace("\u200C", string.Empty)
+            .Replace("\u200D", string.Empty)
+            .Replace("\uFEFF", string.Empty)
+            .Trim();
 
-        var fragmentIndex =
-            href.IndexOf('#');
-
-        if (fragmentIndex >= 0)
-        {
-            fragment =
-                href[fragmentIndex..];
-
-            href =
-                href[..fragmentIndex];
-        }
-
-        var resolved =
-            ResolvePath(
-                baseDirectory,
-                href);
-
-        return string.IsNullOrWhiteSpace(
-            fragment)
-            ? resolved
-            : resolved + fragment;
+        return normalized.Equals(
+                   "Nova",
+                   StringComparison.OrdinalIgnoreCase)
+               || normalized.Equals(
+                   "Jace",
+                   StringComparison.OrdinalIgnoreCase);
     }
 
 
-    private static string RemoveFragment(
-        string path)
+    private static bool IsGameChangerBook(string? bookTitle)
     {
-        if (string.IsNullOrWhiteSpace(
-            path))
+        if (string.IsNullOrWhiteSpace(bookTitle))
+            return false;
+
+        return bookTitle.Contains(
+                   "Játékmódosító",
+                   StringComparison.OrdinalIgnoreCase)
+               || bookTitle.Contains(
+                   "Game Changer",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+
+    private static string? ExtractGameChangerChapterTitle(
+        string html,
+        string? bookTitle)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return null;
+
+        var headingMatches =
+            Regex.Matches(
+                html,
+                @"<h[1-6]\b[^>]*>(.*?)</h[1-6]>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        foreach (Match match in headingMatches)
         {
+            var candidate =
+                CleanHtmlTitleCandidate(
+                    match.Groups[1].Value);
+
+            if (IsUsableGameChangerTitle(
+                    candidate,
+                    bookTitle))
+            {
+                return candidate;
+            }
+        }
+
+        var semanticMatches =
+            Regex.Matches(
+                html,
+                @"<(p|div|section)\b[^>]*(?:class|id)\s*=\s*[""'][^""']*(?:chapter|title|heading|fejezet)[^""']*[""'][^>]*>(.*?)</\1>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        foreach (Match match in semanticMatches)
+        {
+            var candidate =
+                CleanHtmlTitleCandidate(
+                    match.Groups[2].Value);
+
+            if (IsUsableGameChangerTitle(
+                    candidate,
+                    bookTitle))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+
+    private static bool IsUsableGameChangerTitle(
+        string? title,
+        string? bookTitle)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        var value =
+            CleanHtmlTitleCandidate(title);
+
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Length > 120)
+        {
+            return false;
+        }
+
+        if (IsGenericTocTitle(value, bookTitle))
+            return false;
+
+        if (value.Equals(
+                "Játékmódosító",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (value.Equals(
+                "Játékmódosító (Játékmódosítók)",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+
+    private static string CleanHtmlTitleCandidate(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
-        }
 
-        var index =
-            path.IndexOf('#');
+        var result =
+            Regex.Replace(
+                text,
+                @"<script\b[^>]*>.*?</script>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
 
-        return index >= 0
-            ? path[..index]
-            : path;
+        result =
+            Regex.Replace(
+                result,
+                @"<style\b[^>]*>.*?</style>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        result =
+            Regex.Replace(
+                result,
+                "<.*?>",
+                string.Empty,
+                RegexOptions.Singleline);
+
+        result =
+            System.Net.WebUtility.HtmlDecode(result);
+
+        result =
+            Regex.Replace(
+                result,
+                @"\s+",
+                " ");
+
+        return result.Trim();
     }
 
 
-    private static string GetFragment(
-        string path)
+    private static bool IsBrokenHeartsBook(string? bookTitle)
     {
-        if (string.IsNullOrWhiteSpace(
-            path))
-        {
-            return string.Empty;
-        }
+        if (string.IsNullOrWhiteSpace(bookTitle))
+            return false;
 
-        var index =
-            path.IndexOf('#');
-
-        return index >= 0
-            ? path[(index + 1)..]
-            : string.Empty;
+        return bookTitle.Contains(
+                   "Megtört szívek",
+                   StringComparison.OrdinalIgnoreCase)
+               || bookTitle.Contains(
+                   "Broken Hearts",
+                   StringComparison.OrdinalIgnoreCase);
     }
 
 
-    // =========================================================
-    // ZIP ENTRY
-    // =========================================================
+    private static bool IsNonChapterTitle(string? title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        var value = string.Join(
+            " ",
+            title.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries));
+
+        return value.Equals("Cover", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("Table of Contents", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("Tartalomjegyzék", StringComparison.OrdinalIgnoreCase);
+    }
+
+
+    private static bool ContainsChapterTitleImage(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return false;
+
+        // A Broken Hearts-féle EPUB-oknál a fejezetoldal elején
+        // külön JPEG kép hordozza a "CHAPTER SIX" jellegű címet.
+        // Ennél az EPUB-nál a fejezetcím-kép néha nem szabványos
+        // src-formában jelenik meg. Elég azt vizsgálni, hogy az oldal
+        // tartalmaz-e img elemet; a POV-nevet csak rövid névként kezeljük.
+        return Regex.IsMatch(
+            html,
+            @"<img\b[^>]*>",
+            RegexOptions.IgnoreCase |
+            RegexOptions.Singleline);
+    }
+
+
+    private static bool LooksLikeShortPovName(
+        string title,
+        string? tocTitle)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        var value = title.Trim();
+
+        // Csak rövid, egy-két szavas címeket kezelünk így,
+        // hogy a valódi fejezetcímeket ne írjuk felül.
+        if (value.Length > 40)
+            return false;
+
+        if (!Regex.IsMatch(
+                value,
+                @"^[\p{L}]+(?:[ -][\p{L}]+)?$"))
+        {
+            return false;
+        }
+
+        // Ha a TOC ugyanazt a rövid nevet adja, nagy valószínűséggel
+        // POV/karakternév, nem a fejezet címe.
+        if (string.IsNullOrWhiteSpace(tocTitle) ||
+            !string.Equals(
+                value,
+                tocTitle.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // Ennél a könyvnél a szöveges fejezetcím a narrátor neve,
+        // miközben a valódi "CHAPTER ..." cím képként van az oldalon.
+        return value.Equals("Nova", StringComparison.OrdinalIgnoreCase) ||
+               value.Equals("Jace", StringComparison.OrdinalIgnoreCase);
+    }
+
+
+    private static bool IsGenericTocTitle(
+        string title,
+        string? bookTitle)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return true;
+
+        var normalizedTitle =
+            string.Join(
+                " ",
+                title.Split(
+                    (char[]?)null,
+                    StringSplitOptions.RemoveEmptyEntries));
+
+        if (!string.IsNullOrWhiteSpace(bookTitle) &&
+            normalizedTitle.Equals(
+                bookTitle.Trim(),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalizedTitle.Equals(
+                   "Table of Contents",
+                   StringComparison.OrdinalIgnoreCase)
+               || normalizedTitle.Equals(
+                   "Contents",
+                   StringComparison.OrdinalIgnoreCase)
+               || normalizedTitle.Equals(
+                   "Tartalomjegyzék",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? FindTocTitle(
+        Dictionary<string, string> toc,
+        string chapterPath)
+    {
+        if (toc.TryGetValue(chapterPath, out var exact))
+            return exact;
+
+        var fileName = Path.GetFileName(chapterPath);
+
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            var match = toc.FirstOrDefault(item =>
+                string.Equals(
+                    Path.GetFileName(item.Key),
+                    fileName,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (!string.IsNullOrWhiteSpace(match.Value))
+                return match.Value;
+        }
+
+        return null;
+    }
 
     private static ZipArchiveEntry? FindEntry(
         ZipArchive archive,
         string path)
     {
-        var normalized =
-            NormalizePath(
-                path);
+        var normalized = NormalizePath(path);
 
-        return archive.Entries
-            .FirstOrDefault(
-                entry =>
-                    NormalizePath(
-                        entry.FullName)
-                    .Equals(
-                        normalized,
-                        StringComparison.OrdinalIgnoreCase));
+        return archive.Entries.FirstOrDefault(entry =>
+            NormalizePath(entry.FullName).Equals(
+                normalized,
+                StringComparison.OrdinalIgnoreCase));
     }
 
+    private static string InlineChapterImages(
+        ZipArchive archive,
+        string chapterPath,
+        string html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return html;
 
-    // =========================================================
-    // ÚTVONAL FELBONTÁSA
-    // =========================================================
+        var chapterDirectory =
+            GetDirectory(chapterPath);
+
+        // <img src="..."> és XHTML/SVG xlink:href="..."
+        // esetek kezelése. Már beágyazott data: képet nem módosítunk.
+        var pattern =
+            @"(?<prefix>\b(?:src|xlink:href)\s*=\s*[\""'])(?<value>[^\""']+)(?<suffix>[\""'])";
+
+        return Regex.Replace(
+            html,
+            pattern,
+            match =>
+            {
+                var source = match.Groups["value"].Value.Trim();
+
+                if (string.IsNullOrWhiteSpace(source) ||
+                    source.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                    source.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    source.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                // Fragmentum és query nem része az EPUB fájlnevének.
+                var cleanSource = source;
+
+                var hashIndex = cleanSource.IndexOf('#');
+                if (hashIndex >= 0)
+                    cleanSource = cleanSource[..hashIndex];
+
+                var queryIndex = cleanSource.IndexOf('?');
+                if (queryIndex >= 0)
+                    cleanSource = cleanSource[..queryIndex];
+
+                if (string.IsNullOrWhiteSpace(cleanSource))
+                    return match.Value;
+
+                var imagePath =
+                    ResolvePath(
+                        chapterDirectory,
+                        cleanSource);
+
+                var imageEntry =
+                    FindEntry(
+                        archive,
+                        imagePath);
+
+                if (imageEntry == null)
+                    return match.Value;
+
+                try
+                {
+                    using var stream = imageEntry.Open();
+                    using var memory = new MemoryStream();
+
+                    stream.CopyTo(memory);
+
+                    var bytes = memory.ToArray();
+                    var mimeType = GetImageMimeType(imageEntry.FullName);
+
+                    if (string.IsNullOrWhiteSpace(mimeType))
+                        return match.Value;
+
+                    var dataUri =
+                        $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+
+                    return
+                        match.Groups["prefix"].Value +
+                        dataUri +
+                        match.Groups["suffix"].Value;
+                }
+                catch
+                {
+                    return match.Value;
+                }
+            },
+            RegexOptions.IgnoreCase);
+    }
+
+    private static string? GetImageMimeType(string path)
+    {
+        if (path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+        {
+            return "image/jpeg";
+        }
+
+        if (path.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            return "image/png";
+
+        if (path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+            return "image/webp";
+
+        if (path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+            return "image/gif";
+
+        if (path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
+            return "image/svg+xml";
+
+        return null;
+    }
 
     private static string ResolvePath(
         string baseDirectory,
         string href)
     {
-        href =
-            href
-                .Replace("\\", "/")
-                .Trim();
+        href = href
+            .Replace("\\", "/")
+            .Trim();
 
-        var fragmentIndex =
-            href.IndexOf('#');
+        // EPUB href-ek URL-kódolt karaktereket is tartalmazhatnak.
+        href = Uri.UnescapeDataString(href);
 
-        if (fragmentIndex >= 0)
-        {
-            href =
-                href[..fragmentIndex];
-        }
+        var combined = string.IsNullOrWhiteSpace(baseDirectory)
+            ? href
+            : $"{baseDirectory.TrimEnd('/')}/{href.TrimStart('/')}";
 
-        var queryIndex =
-            href.IndexOf('?');
-
-        if (queryIndex >= 0)
-        {
-            href =
-                href[..queryIndex];
-        }
-
-        try
-        {
-            href =
-                Uri.UnescapeDataString(
-                    href);
-        }
-        catch
-        {
-        }
-
-        var combined =
-            string.IsNullOrWhiteSpace(
-                baseDirectory)
-                ? href
-                : $"{baseDirectory.TrimEnd('/')}/{href.TrimStart('/')}";
-
-        return NormalizePath(
-            combined);
+        return NormalizePath(combined);
     }
 
-
-    // =========================================================
-    // KÖNYVTÁR
-    // =========================================================
-
-    private static string GetDirectory(
-        string path)
+    private static string GetDirectory(string path)
     {
-        path =
-            NormalizePath(
-                path);
+        path = NormalizePath(path);
 
-        var slash =
-            path.LastIndexOf('/');
+        var slash = path.LastIndexOf('/');
 
         return slash < 0
             ? string.Empty
             : path[..slash];
     }
 
-
-    // =========================================================
-    // ÚTVONAL NORMALIZÁLÁS
-    // =========================================================
-
-    private static string NormalizePath(
-        string path)
+    private static string NormalizePath(string path)
     {
-        path =
-            path
-                .Replace("\\", "/")
-                .Trim();
+        path = path
+            .Replace("\\", "/")
+            .Trim();
 
-        var parts =
-            new List<string>();
+        var parts = new List<string>();
 
         foreach (var part in path.Split(
-            '/',
-            StringSplitOptions.RemoveEmptyEntries))
+                     '/',
+                     StringSplitOptions.RemoveEmptyEntries))
         {
             if (part == ".")
-            {
                 continue;
-            }
 
             if (part == "..")
             {
                 if (parts.Count > 0)
-                {
-                    parts.RemoveAt(
-                        parts.Count - 1);
-                }
+                    parts.RemoveAt(parts.Count - 1);
 
                 continue;
             }
 
-            parts.Add(
-                part);
+            parts.Add(part);
         }
 
-        return string.Join(
-            "/",
-            parts);
+        return string.Join("/", parts);
     }
 
-
-    // =========================================================
-    // KÉP ELLENŐRZÉSE
-    // =========================================================
-
-    private static bool IsImage(
-        string path)
+    private static bool IsImage(string path)
     {
-        return
-            path.EndsWith(
-                ".jpg",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            path.EndsWith(
-                ".jpeg",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            path.EndsWith(
-                ".png",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            path.EndsWith(
-                ".webp",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            path.EndsWith(
-                ".gif",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            path.EndsWith(
-                ".svg",
-                StringComparison.OrdinalIgnoreCase)
-            ||
-            path.EndsWith(
-                ".bmp",
-                StringComparison.OrdinalIgnoreCase);
+        return path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase);
     }
 }

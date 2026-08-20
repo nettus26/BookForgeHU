@@ -12,27 +12,79 @@ public class ChapterTitleResolver
     {
         if (string.IsNullOrWhiteSpace(html))
         {
-            return fallbackTitle;
+            return CleanCandidate(fallbackTitle);
         }
 
-        // =========================================================
-        // 1. SZÁMOZOTT FEJEZET
-        // =========================================================
-        //
-        // Az EPUB többféleképpen tárolhatja a fejezetszámot:
-        //
-        // <p>5</p>
-        // <p>EGÉSZ</p>
-        //
-        // vagy:
-        //
-        // <p><span>5</span></p>
-        // <p>EGÉSZ</p>
-        //
-        // Ezért nem a HTML szerkezetét, hanem az első két
-        // bekezdés megtisztított szövegét vizsgáljuk.
-        //
+        // 1. A fejezetben szereplő valódi címsor.
+        // EPUB-okban nem csak h1-h3 fordul elő, ezért h1-h6-ot vizsgálunk.
+        var headingMatches =
+            Regex.Matches(
+                html,
+                @"<h[1-6]\b[^>]*>(.*?)</h[1-6]>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
 
+        foreach (Match match in headingMatches)
+        {
+            var title =
+                CleanCandidate(match.Groups[1].Value);
+
+            if (IsUsableChapterTitle(title, fallbackTitle))
+            {
+                return title;
+            }
+        }
+
+        // 2. Olyan p/div elem, amelynek class vagy id attribútuma
+        // kifejezetten címre/fejezetre utal.
+        var semanticTitleMatches =
+            Regex.Matches(
+                html,
+                @"<(p|div|section)\b[^>]*(?:class|id)\s*=\s*[""'][^""']*(?:chapter|title|heading|fejezet)[^""']*[""'][^>]*>(.*?)</\1>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        foreach (Match match in semanticTitleMatches)
+        {
+            var title =
+                CleanCandidate(match.Groups[2].Value);
+
+            if (IsUsableChapterTitle(title, fallbackTitle))
+            {
+                return title;
+            }
+        }
+
+        // 3. Kifejezetten fejezetcímként megírt bekezdés.
+        // Egyes EPUB-ok nem h1-h6 elemet használnak, hanem egyszerű
+        // <p>-t, például: "TIZENKILENCEDIK FEJEZET".
+        var paragraphTitleMatches =
+            Regex.Matches(
+                html,
+                @"<(p|div|section)\\b[^>]*>(.*?)</\\1>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        foreach (Match match in paragraphTitleMatches)
+        {
+            var title =
+                CleanCandidate(match.Groups[2].Value);
+
+            // Magyar és angol EPUB-oknál is kezeljük a tipikus
+            // "X fejezet" / "Chapter X" formát.
+            if (Regex.IsMatch(
+                    title,
+                    @"^(?:[\\p{L}\\d]+(?:[\\s-]+[\\p{L}\\d]+)*\\s+fejezet|chapter\\s+[\\p{L}\\d]+)$",
+                    RegexOptions.IgnoreCase)
+                && IsUsableChapterTitle(
+                    title,
+                    fallbackTitle))
+            {
+                return title;
+            }
+        }
+
+        // 4. A korábbi számozott fejezetforma.
         var paragraphs =
             Regex.Matches(
                 html,
@@ -43,51 +95,26 @@ public class ChapterTitleResolver
         if (paragraphs.Count >= 2)
         {
             var firstText =
-                CleanText(
+                CleanCandidate(
                     paragraphs[0].Groups[1].Value);
 
             var secondText =
-                CleanText(
+                CleanCandidate(
                     paragraphs[1].Groups[1].Value);
 
             if (Regex.IsMatch(
                     firstText,
                     @"^\d{1,4}$") &&
-                !string.IsNullOrWhiteSpace(
-                    secondText) &&
+                IsUsableChapterTitle(
+                    secondText,
+                    fallbackTitle) &&
                 secondText.Length <= 150)
             {
                 return $"{firstText} {secondText}";
             }
         }
 
-        // =========================================================
-        // 2. H1-H3 CÍM
-        // =========================================================
-
-        var heading =
-            Regex.Match(
-                html,
-                @"<h[1-3]\b[^>]*>(.*?)</h[1-3]>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        if (heading.Success)
-        {
-            var title =
-                CleanText(
-                    heading.Groups[1].Value);
-
-            if (!string.IsNullOrWhiteSpace(title))
-            {
-                return title;
-            }
-        }
-
-        // =========================================================
-        // 3. HTML <title>
-        // =========================================================
-
+        // 5. <title> csak akkor, ha nem a könyv általános címe.
         var pageTitle =
             Regex.Match(
                 html,
@@ -98,13 +125,10 @@ public class ChapterTitleResolver
         if (pageTitle.Success)
         {
             var title =
-                CleanText(
+                CleanCandidate(
                     pageTitle.Groups[1].Value);
 
-            // Az EPUB minden oldalán ugyanaz a könyvcím szerepel.
-            // Ezt nem tekintjük fejezetcímnek.
-            if (!string.IsNullOrWhiteSpace(title) &&
-                !LooksLikeBookTitle(
+            if (IsUsableChapterTitle(
                     title,
                     fallbackTitle))
             {
@@ -112,11 +136,34 @@ public class ChapterTitleResolver
             }
         }
 
-        // =========================================================
-        // 4. FALLBACK
-        // =========================================================
+        // 6. Ha nincs felismerhető cím, a fallback marad.
+        return CleanCandidate(fallbackTitle);
+    }
 
-        return fallbackTitle;
+
+    private static bool IsUsableChapterTitle(
+        string title,
+        string fallbackTitle)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        if (LooksLikeBookTitle(
+                title,
+                fallbackTitle))
+        {
+            return false;
+        }
+
+        // Ne kerüljön egy teljes bekezdés a TOC-ba.
+        if (title.Length > 180)
+        {
+            return false;
+        }
+
+        return true;
     }
 
 
@@ -129,19 +176,25 @@ public class ChapterTitleResolver
             return true;
         }
 
-        if (!string.IsNullOrWhiteSpace(fallbackTitle) &&
-            title.Equals(
-                fallbackTitle.Trim(),
-                StringComparison.OrdinalIgnoreCase))
+        var normalizedTitle =
+            NormalizeForComparison(title);
+
+        if (!string.IsNullOrWhiteSpace(fallbackTitle))
         {
-            return true;
+            var normalizedFallback =
+                NormalizeForComparison(fallbackTitle);
+
+            if (normalizedTitle == normalizedFallback)
+            {
+                return true;
+            }
         }
 
         return false;
     }
 
 
-    private static string CleanText(
+    private static string CleanCandidate(
         string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -152,6 +205,22 @@ public class ChapterTitleResolver
         var result =
             Regex.Replace(
                 text,
+                @"<script\b[^>]*>.*?</script>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        result =
+            Regex.Replace(
+                result,
+                @"<style\b[^>]*>.*?</style>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        result =
+            Regex.Replace(
+                result,
                 "<.*?>",
                 string.Empty,
                 RegexOptions.Singleline);
@@ -167,5 +236,23 @@ public class ChapterTitleResolver
                 " ");
 
         return result.Trim();
+    }
+
+
+    private static string NormalizeForComparison(
+        string text)
+    {
+        var result =
+            CleanCandidate(text);
+
+        result =
+            Regex.Replace(
+                result,
+                @"[^\p{L}\p{N}]+",
+                " ");
+
+        return result
+            .Trim()
+            .ToLowerInvariant();
     }
 }
