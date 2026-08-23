@@ -1,10 +1,10 @@
-﻿using BookForge.Core.Models;
+﻿using System.IO.Compression;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
+using BookForge.Core.Models;
 using BookForge.Epub.Helpers;
 using BookForge.Epub.Interfaces;
 using BookForge.Epub.Parsers;
-using System.IO.Compression;
-using System.Text.RegularExpressions;
-using System.Xml.Linq;
 
 namespace BookForge.Epub;
 
@@ -94,17 +94,76 @@ public class EpubReaderV2 : IEpubReader
     {
         var chapterLoader = new ChapterLoader();
         var titleResolver = new ChapterTitleResolver();
-
         var contentDirectory = GetDirectory(contentPath);
+
+        // A Broken Hearts EPUB-nál a spine több olyan XHTML-oldalt is
+        // tartalmaz, amely nem önálló fejezet. Az NCX viszont pontosan
+        // felsorolja a valódi fejezeteket és az epilógusokat, ezért ennél
+        // a könyvnél kizárólag a TOC/NCX sorrendjét használjuk.
+        if (IsBrokenHeartsBook(book.Title))
+        {
+            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var tocItem in toc)
+            {
+                var chapterPath = tocItem.Key;
+                var tocTitle = tocItem.Value?.Trim();
+
+                if (string.IsNullOrWhiteSpace(chapterPath) ||
+                    string.IsNullOrWhiteSpace(tocTitle))
+                    continue;
+
+                if (!addedPaths.Add(chapterPath))
+                    continue;
+
+                var chapterEntry = FindEntry(archive, chapterPath);
+                if (chapterEntry == null)
+                    continue;
+
+                string html;
+                using (var reader = new StreamReader(chapterEntry.Open()))
+                {
+                    html = reader.ReadToEnd();
+                }
+
+                // A Broken Hearts EPUB fejezetképei relatív images/... útvonalon
+                // vannak. A WebView2 NavigateToString esetén nincs EPUB-on
+                // belüli base URL, ezért a képeket közvetlenül data URI-ként
+                // beágyazzuk a HTML-be.
+                html = InlineChapterImages(
+                    archive,
+                    chapterPath,
+                    html);
+
+                // A képes fejezetcímek miatt a HTML-ben talált Nova/Jace
+                // nem használható fejezetcímként. A Broken Hearts esetén
+                // a TOC/NCX már a helyes fejezetcímeket adja.
+                var title = tocTitle;
+
+                if (IsBrokenHeartsPovTitle(title))
+                    continue;
+
+                var chapter = chapterLoader.Load(
+                    title,
+                    html,
+                    book.Chapters.Count + 1);
+
+                chapter.FilePath = chapterPath;
+                chapter.Href = chapterPath;
+
+                book.Chapters.Add(chapter);
+            }
+
+            return;
+        }
+
         var order = 1;
 
         foreach (var id in spine)
         {
             if (!manifest.TryGetValue(id, out var href) ||
                 string.IsNullOrWhiteSpace(href))
-            {
                 continue;
-            }
 
             var chapterPath = ResolvePath(contentDirectory, href);
             var chapterEntry = FindEntry(archive, chapterPath);
@@ -113,65 +172,26 @@ public class EpubReaderV2 : IEpubReader
                 continue;
 
             string html;
-
             using (var reader = new StreamReader(chapterEntry.Open()))
             {
                 html = reader.ReadToEnd();
             }
 
-            // Először mindig az EPUB saját tartalomjegyzékének címét használjuk.
-            // Csak akkor próbáljuk a HTML-ből kinyerni a címet, ha a TOC-cím
-            // A fejezet valódi címét mindig az XHTML-ből próbáljuk
-            // meghatározni. FONTOS: a resolvernek itt nem adjuk át
-            // fallbackként a könyv címét, mert egyes EPUB-okban a
-            // TOC minden fejezethez magát a könyvcímet adja meg.
-            var resolvedTitle =
-                titleResolver.Resolve(
-                    html,
-                    string.Empty);
+            var resolvedTitle = titleResolver.Resolve(html, string.Empty);
 
-            // A könyv borító- és saját tartalomjegyzék-oldala nem valódi
-            // olvasási fejezet. Egyes EPUB-ok ezeket is a spine-ba teszik.
             if (IsNonChapterTitle(resolvedTitle) ||
                 IsNonChapterTitle(FindTocTitle(toc, chapterPath)))
-            {
                 continue;
-            }
 
             if (!string.IsNullOrWhiteSpace(resolvedTitle) &&
-                IsGenericTocTitle(
-                    resolvedTitle,
-                    book.Title))
-            {
+                IsGenericTocTitle(resolvedTitle, book.Title))
                 resolvedTitle = null;
-            }
 
-            var tocTitle =
-                FindTocTitle(
-                    toc,
-                    chapterPath);
+            var tocTitle = FindTocTitle(toc, chapterPath);
 
             if (!string.IsNullOrWhiteSpace(tocTitle) &&
-                IsGenericTocTitle(
-                    tocTitle,
-                    book.Title))
-            {
+                IsGenericTocTitle(tocTitle, book.Title))
                 tocTitle = null;
-            }
-
-            // Játékmódosító:
-            // egyes kiadásokban a TOC minden fejezetnél a könyv címét
-            // tartalmazza, miközben az XHTML-ben ott van a valódi
-            // "Tizenkilencedik fejezet" jellegű címsor.
-            // Ilyenkor közvetlenül az XHTML címsorát használjuk.
-            if (IsGameChangerBook(book.Title) &&
-                string.IsNullOrWhiteSpace(resolvedTitle))
-            {
-                resolvedTitle =
-                    ExtractGameChangerChapterTitle(
-                        html,
-                        book.Title);
-            }
 
             var title =
                 !string.IsNullOrWhiteSpace(resolvedTitle)
@@ -180,76 +200,16 @@ public class EpubReaderV2 : IEpubReader
                         ? tocTitle
                         : $"Chapter {order}";
 
-            // Egyes EPUB-ok (pl. a Broken Hearts típusú könyvek)
-            // a fejezet tényleges címét képként tartalmazzák
-            // ("CHAPTER SIX", stb.), miközben az XHTML szöveges
-            // címe csak a POV-karakter neve ("Nova", "Jace").
-            // Ilyenkor a karakternevet nem használjuk TOC-címként.
-            // A "Megtört szívek" EPUB-ban a fejezet képcíme mellett
-            // a szöveges cím csak a narrátor neve (Nova/Jace).
-            // Ennél a konkrét könyvnél ezt biztosan kezeljük, akkor is,
-            // ha az EPUB XHTML-je az img elemet szokatlan formában írja.
-            if (IsBrokenHeartsBook(book.Title))
-            {
-                // Ennél a könyvnél a valódi fejezetszámot a fejezetoldalban
-                // szereplő címkép fájlneve adja.
-                // Például: 00008.jpeg -> Chapter 8.
-                // A spine/NCX sorrendje ennél az EPUB-nál elcsúszhat, ezért
-                // itt nem az order és nem az NCX sorszáma dönt.
-                var imageChapterNumber =
-                    GetBrokenHeartsImageChapterNumber(html);
-
-                if (imageChapterNumber.HasValue)
-                {
-                    title = $"Chapter {imageChapterNumber.Value}";
-                }
-                else if (!string.IsNullOrWhiteSpace(tocTitle) &&
-                         Regex.IsMatch(
-                             tocTitle,
-                             @"^Chapter\s+\d+$",
-                             RegexOptions.IgnoreCase))
-                {
-                    title = tocTitle.Trim();
-                }
-                else if (!string.IsNullOrWhiteSpace(tocTitle) &&
-                         Regex.IsMatch(
-                             tocTitle,
-                             @"^Epilogue\s+\d+$|^Epilógus\s+\d+$",
-                             RegexOptions.IgnoreCase))
-                {
-                    title = tocTitle.Trim();
-                }
-                else
-                {
-                    title = $"Chapter {order}";
-                }
-            }
-            else if (ContainsChapterTitleImage(html) &&
-                     LooksLikeShortPovName(title, tocTitle))
+            if (ContainsChapterTitleImage(html) &&
+                LooksLikeShortPovName(title, tocTitle))
             {
                 title = $"Chapter {order}";
             }
 
             if (string.IsNullOrWhiteSpace(title))
-            {
                 title = $"Chapter {order}";
-            }
 
-            // A fejezet XHTML-je az EPUB-on belüli relatív képútvonalakat
-            // tartalmazhatja. A megjelenítő WebView-ban ezekhez nincs mindig
-            // elérhető fájlrendszeres base URL, ezért a fejezet betöltése előtt
-            // az EPUB-ból közvetlenül data URI-ként beágyazzuk a képeket.
-            // Így a fejezeten belüli JPG/PNG képek biztosan megjelennek.
-            html = InlineChapterImages(
-                archive,
-                chapterPath,
-                html);
-
-            var chapter = chapterLoader.Load(
-                title,
-                html,
-                order);
-
+            var chapter = chapterLoader.Load(title, html, order);
             chapter.FilePath = chapterPath;
             chapter.Href = href;
 
@@ -271,10 +231,9 @@ public class EpubReaderV2 : IEpubReader
         XNamespace opf = "http://www.idpf.org/2007/opf";
         var contentDirectory = GetDirectory(contentPath);
 
-        // A Broken Hearts EPUB-nál az EPUB3 NAV gyakran POV-neveket
-        // (Nova/Jace) tartalmaz a valódi fejezetcím helyett.
-        // Ennél a könyvnél ezért kizárólag az NCX valódi
-        // Chapter/Epilogue bejegyzéseit használjuk.
+        // A Broken Hearts EPUB-nál az NCX a megbízható forrás.
+        // A spine-ben vannak extra XHTML-oldalak, ezért nem abból
+        // építjük fel a fejezetlistát.
         if (contentXml.Contains("Megtört szívek", StringComparison.OrdinalIgnoreCase) ||
             contentXml.Contains("Broken Hearts", StringComparison.OrdinalIgnoreCase))
         {
@@ -305,83 +264,60 @@ public class EpubReaderV2 : IEpubReader
                 ncxHref = ncxItem?.Attribute("href")?.Value;
             }
 
-            if (!string.IsNullOrWhiteSpace(ncxHref))
+            if (string.IsNullOrWhiteSpace(ncxHref))
+                return result;
+
+            var ncxPath = ResolvePath(contentDirectory, ncxHref);
+            var ncxEntry = FindEntry(archive, ncxPath);
+
+            if (ncxEntry == null)
+                return result;
+
+            using var reader = new StreamReader(ncxEntry.Open());
+            var ncxText = reader.ReadToEnd();
+            var ncxDocument = XDocument.Parse(ncxText);
+            XNamespace ncx = "http://www.daisy.org/z3986/2005/ncx/";
+
+            var chapterNumber = 0;
+            var epilogueNumber = 0;
+
+            foreach (var navPoint in ncxDocument.Descendants(ncx + "navPoint"))
             {
-                var ncxPath = ResolvePath(contentDirectory, ncxHref);
-                var ncxEntry = FindEntry(archive, ncxPath);
+                var label = navPoint
+                    .Element(ncx + "navLabel")?
+                    .Element(ncx + "text")?
+                    .Value?
+                    .Trim();
 
-                if (ncxEntry != null)
+                var src = navPoint
+                    .Element(ncx + "content")?
+                    .Attribute("src")?
+                    .Value;
+
+                if (string.IsNullOrWhiteSpace(src))
+                    continue;
+
+                var fragmentIndex = src.IndexOf('#');
+                if (fragmentIndex >= 0)
+                    src = src[..fragmentIndex];
+
+                var path = ResolvePath(GetDirectory(ncxPath), src);
+
+                if (!string.IsNullOrWhiteSpace(label) &&
+                    label.EndsWith("FEJEZET", StringComparison.OrdinalIgnoreCase))
                 {
-                    using var reader = new StreamReader(ncxEntry.Open());
-                    var ncxText = reader.ReadToEnd();
-                    var ncxDocument = XDocument.Parse(ncxText);
-                    XNamespace ncx = "http://www.daisy.org/z3986/2005/ncx/";
+                    chapterNumber++;
+                    result[path] = $"Chapter {chapterNumber}";
+                    continue;
+                }
 
-                    foreach (var navPoint in ncxDocument.Descendants(ncx + "navPoint"))
-                    {
-                        var label = navPoint
-                            .Element(ncx + "navLabel")?
-                            .Element(ncx + "text")?
-                            .Value?
-                            .Trim();
-
-                        if (string.IsNullOrWhiteSpace(label))
-                            continue;
-
-                        var isChapter = Regex.IsMatch(
-                            label,
-                            @"^Chapter\s+\d+$",
-                            RegexOptions.IgnoreCase);
-
-                        var isEpilogue = Regex.IsMatch(
-                            label,
-                            @"^Epilogue\s+\d+$|^Epilógus\s+\d+$",
-                            RegexOptions.IgnoreCase);
-
-                        if (!isChapter && !isEpilogue)
-                            continue;
-
-                        var src = navPoint
-                            .Element(ncx + "content")?
-                            .Attribute("src")?
-                            .Value;
-
-                        if (string.IsNullOrWhiteSpace(src))
-                            continue;
-
-                        var fragmentIndex = src.IndexOf('#');
-                        if (fragmentIndex >= 0)
-                            src = src[..fragmentIndex];
-
-                        var path = ResolvePath(GetDirectory(ncxPath), src);
-
-                        // A TOC-cím itt csak akkor tekinthető véglegesnek,
-                        // ha összeegyezik a fejezetoldal címképével. Ennél
-                        // a könyvnél az NCX sorszáma elcsúszhat a JPG-hez
-                        // képest, ezért a 00008.jpeg -> Chapter 8 szabály
-                        // az elsődleges.
-                        var targetEntry = FindEntry(archive, path);
-                        var normalizedLabel = label;
-
-                        if (targetEntry != null)
-                        {
-                            using var targetReader =
-                                new StreamReader(targetEntry.Open());
-
-                            var targetHtml = targetReader.ReadToEnd();
-                            var imageChapterNumber =
-                                GetBrokenHeartsImageChapterNumber(targetHtml);
-
-                            if (imageChapterNumber.HasValue)
-                            {
-                                normalizedLabel =
-                                    $"Chapter {imageChapterNumber.Value}";
-                            }
-                        }
-
-                        if (!result.ContainsKey(path))
-                            result[path] = normalizedLabel;
-                    }
+                if (Regex.IsMatch(
+                        label ?? string.Empty,
+                        @"EPILÓGUS",
+                        RegexOptions.IgnoreCase))
+                {
+                    epilogueNumber++;
+                    result[path] = $"Epilogue {epilogueNumber}";
                 }
             }
 
@@ -639,151 +575,6 @@ public class EpubReaderV2 : IEpubReader
     }
 
 
-    private static bool IsGameChangerBook(string? bookTitle)
-    {
-        if (string.IsNullOrWhiteSpace(bookTitle))
-            return false;
-
-        return bookTitle.Contains(
-                   "Játékmódosító",
-                   StringComparison.OrdinalIgnoreCase)
-               || bookTitle.Contains(
-                   "Game Changer",
-                   StringComparison.OrdinalIgnoreCase);
-    }
-
-
-    private static string? ExtractGameChangerChapterTitle(
-        string html,
-        string? bookTitle)
-    {
-        if (string.IsNullOrWhiteSpace(html))
-            return null;
-
-        var headingMatches =
-            Regex.Matches(
-                html,
-                @"<h[1-6]\b[^>]*>(.*?)</h[1-6]>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        foreach (Match match in headingMatches)
-        {
-            var candidate =
-                CleanHtmlTitleCandidate(
-                    match.Groups[1].Value);
-
-            if (IsUsableGameChangerTitle(
-                    candidate,
-                    bookTitle))
-            {
-                return candidate;
-            }
-        }
-
-        var semanticMatches =
-            Regex.Matches(
-                html,
-                @"<(p|div|section)\b[^>]*(?:class|id)\s*=\s*[""'][^""']*(?:chapter|title|heading|fejezet)[^""']*[""'][^>]*>(.*?)</\1>",
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        foreach (Match match in semanticMatches)
-        {
-            var candidate =
-                CleanHtmlTitleCandidate(
-                    match.Groups[2].Value);
-
-            if (IsUsableGameChangerTitle(
-                    candidate,
-                    bookTitle))
-            {
-                return candidate;
-            }
-        }
-
-        return null;
-    }
-
-
-    private static bool IsUsableGameChangerTitle(
-        string? title,
-        string? bookTitle)
-    {
-        if (string.IsNullOrWhiteSpace(title))
-            return false;
-
-        var value =
-            CleanHtmlTitleCandidate(title);
-
-        if (string.IsNullOrWhiteSpace(value) ||
-            value.Length > 120)
-        {
-            return false;
-        }
-
-        if (IsGenericTocTitle(value, bookTitle))
-            return false;
-
-        if (value.Equals(
-                "Játékmódosító",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (value.Equals(
-                "Játékmódosító (Játékmódosítók)",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-
-    private static string CleanHtmlTitleCandidate(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return string.Empty;
-
-        var result =
-            Regex.Replace(
-                text,
-                @"<script\b[^>]*>.*?</script>",
-                string.Empty,
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        result =
-            Regex.Replace(
-                result,
-                @"<style\b[^>]*>.*?</style>",
-                string.Empty,
-                RegexOptions.IgnoreCase |
-                RegexOptions.Singleline);
-
-        result =
-            Regex.Replace(
-                result,
-                "<.*?>",
-                string.Empty,
-                RegexOptions.Singleline);
-
-        result =
-            System.Net.WebUtility.HtmlDecode(result);
-
-        result =
-            Regex.Replace(
-                result,
-                @"\s+",
-                " ");
-
-        return result.Trim();
-    }
-
-
     private static bool IsBrokenHeartsBook(string? bookTitle)
     {
         if (string.IsNullOrWhiteSpace(bookTitle))
@@ -952,17 +743,16 @@ public class EpubReaderV2 : IEpubReader
         var chapterDirectory =
             GetDirectory(chapterPath);
 
-        // <img src="..."> és XHTML/SVG xlink:href="..."
-        // esetek kezelése. Már beágyazott data: képet nem módosítunk.
         var pattern =
-            @"(?<prefix>\b(?:src|xlink:href)\s*=\s*[\""'])(?<value>[^\""']+)(?<suffix>[\""'])";
+            @"(?<prefix>\b(?:src|xlink:href)\s*=\s*[""'])(?<value>[^""']+)(?<suffix>[""'])";
 
         return Regex.Replace(
             html,
             pattern,
             match =>
             {
-                var source = match.Groups["value"].Value.Trim();
+                var source =
+                    match.Groups["value"].Value.Trim();
 
                 if (string.IsNullOrWhiteSpace(source) ||
                     source.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
@@ -972,7 +762,6 @@ public class EpubReaderV2 : IEpubReader
                     return match.Value;
                 }
 
-                // Fragmentum és query nem része az EPUB fájlnevének.
                 var cleanSource = source;
 
                 var hashIndex = cleanSource.IndexOf('#');
@@ -986,34 +775,34 @@ public class EpubReaderV2 : IEpubReader
                 if (string.IsNullOrWhiteSpace(cleanSource))
                     return match.Value;
 
-                var imagePath =
-                    ResolvePath(
-                        chapterDirectory,
-                        cleanSource);
-
-                var imageEntry =
-                    FindEntry(
-                        archive,
-                        imagePath);
-
-                if (imageEntry == null)
-                    return match.Value;
-
                 try
                 {
-                    using var stream = imageEntry.Open();
-                    using var memory = new MemoryStream();
+                    var imagePath =
+                        ResolvePath(
+                            chapterDirectory,
+                            cleanSource);
 
-                    stream.CopyTo(memory);
+                    var imageEntry =
+                        FindEntry(
+                            archive,
+                            imagePath);
 
-                    var bytes = memory.ToArray();
-                    var mimeType = GetImageMimeType(imageEntry.FullName);
+                    if (imageEntry == null)
+                        return match.Value;
+
+                    var mimeType =
+                        GetImageMimeType(
+                            imageEntry.FullName);
 
                     if (string.IsNullOrWhiteSpace(mimeType))
                         return match.Value;
 
+                    using var stream = imageEntry.Open();
+                    using var memory = new MemoryStream();
+                    stream.CopyTo(memory);
+
                     var dataUri =
-                        $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+                        $"data:{mimeType};base64,{Convert.ToBase64String(memory.ToArray())}";
 
                     return
                         match.Groups["prefix"].Value +
@@ -1039,11 +828,11 @@ public class EpubReaderV2 : IEpubReader
         if (path.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
             return "image/png";
 
-        if (path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
-            return "image/webp";
-
         if (path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
             return "image/gif";
+
+        if (path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
+            return "image/webp";
 
         if (path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
             return "image/svg+xml";

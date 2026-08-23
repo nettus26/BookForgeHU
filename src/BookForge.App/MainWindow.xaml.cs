@@ -236,6 +236,49 @@ public partial class MainWindow : Window
                 "<p>Válassz ki egy fejezetet.</p>";
         }
 
+        // Az EPUB-ok gyakran teljes XHTML dokumentumot adnak vissza.
+        // A WebView2-ben ne ágyazzunk egy teljes <html> dokumentumot
+        // egy másik <body>-ba. Csak a tényleges body tartalmat jelenítsük meg.
+        var bodyMatch =
+            Regex.Match(
+                html,
+                @"<body\\b[^>]*>(.*?)</body>",
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        if (bodyMatch.Success)
+        {
+            html = bodyMatch.Groups[1].Value;
+        }
+
+        // Az EPUB saját CSS-e egyes könyveknél elrejti a teljes tartalmat
+        // (display:none / visibility:hidden stb.). A BookForge saját
+        // olvasó-stílusát használjuk, ezért az EPUB <style> és stylesheet
+        // linkjeit eltávolítjuk.
+        html =
+            Regex.Replace(
+                html,
+                @"<style\\b[^>]*>.*?</style\\s*>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        html =
+            Regex.Replace(
+                html,
+                @"<link\\b[^>]*\\brel\\s*=\\s*[""'][^""']*stylesheet[^""']*[""'][^>]*>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
+        html =
+            Regex.Replace(
+                html,
+                @"<script\\b[^>]*>.*?</script\\s*>",
+                string.Empty,
+                RegexOptions.IgnoreCase |
+                RegexOptions.Singleline);
+
         var background =
             darkMode
                 ? "#1e1e1e"
@@ -285,6 +328,9 @@ public partial class MainWindow : Window
             "}" +
 
             "body {" +
+            "display: block !important;" +
+            "visibility: visible !important;" +
+            "opacity: 1 !important;" +
             "font-family: '" + readerFontFamily + "', serif !important;" +
             "font-size: " + fontSize + "px !important;" +
             "line-height: " + lineSpacing + " !important;" +
@@ -299,6 +345,7 @@ public partial class MainWindow : Window
             "h1 {" +
             "font-family: '" + readerFontFamily + "', serif !important;" +
             "font-size: " + h1Size + "px !important;" +
+            "font-weight: 700 !important;" +
             "margin-top: 0;" +
             "margin-bottom: 20px;" +
             "color: " + headingColor + ";" +
@@ -307,6 +354,7 @@ public partial class MainWindow : Window
             "h2 {" +
             "font-family: '" + readerFontFamily + "', serif !important;" +
             "font-size: " + h2Size + "px !important;" +
+            "font-weight: 700 !important;" +
             "margin-top: 24px;" +
             "margin-bottom: 16px;" +
             "color: " + headingColor + ";" +
@@ -315,9 +363,20 @@ public partial class MainWindow : Window
             "h3 {" +
             "font-family: '" + readerFontFamily + "', serif !important;" +
             "font-size: " + h3Size + "px !important;" +
+            "font-weight: 700 !important;" +
             "margin-top: 20px;" +
             "margin-bottom: 14px;" +
             "color: " + headingColor + ";" +
+            "}" +
+
+            "h4, h5, h6 {" +
+            "font-family: '" + readerFontFamily + "', serif !important;" +
+            "font-weight: 700 !important;" +
+            "color: " + headingColor + " !important;" +
+            "}" +
+
+            "strong, b {" +
+            "font-weight: 700 !important;" +
             "}" +
 
             "p {" +
@@ -1574,25 +1633,44 @@ public partial class MainWindow : Window
     // FEJEZET MEGJELENÍTÉSE
     // =========================================================
 
-    private void ShowChapter(
+    private async void ShowChapter(
         Chapter chapter)
     {
         StopReadingPositionTracking();
 
-        if (string.IsNullOrWhiteSpace(
-            chapter.HtmlContent))
-        {
-            return;
-        }
-
         try
         {
+            await contentViewer.EnsureCoreWebView2Async();
+
             currentChapter =
                 chapter;
 
+            var sourceHtml =
+                chapter.HtmlContent;
+
+            if (string.IsNullOrWhiteSpace(sourceHtml))
+            {
+                sourceHtml =
+                    "<h1>" +
+                    System.Net.WebUtility.HtmlEncode(
+                        chapter.Title ?? "Fejezet") +
+                    "</h1>" +
+                    "<p>Ehhez a fejezethez nem érkezett megjeleníthető HTML-tartalom.</p>";
+            }
+
+            var linkedHtml =
+                ConvertInternalEpubLinks(
+                    sourceHtml,
+                    chapter.FilePath);
+
+            var titleBoldHtml =
+                MakeChapterTitleBold(
+                    linkedHtml,
+                    chapter.Title);
+
             var readerHtml =
                 CreateReaderHtml(
-                    chapter.HtmlContent);
+                    titleBoldHtml);
 
             contentViewer.NavigateToString(
                 readerHtml);
@@ -1603,6 +1681,134 @@ public partial class MainWindow : Window
                 ex.ToString(),
                 "Fejezet megjelenítési hiba");
         }
+    }
+
+
+    // =========================================================
+    // FEJEZETCÍM FÉLKÖVÉRÍTÉSE
+    // =========================================================
+
+    private static string MakeChapterTitleBold(
+        string html,
+        string? chapterTitle)
+    {
+        if (string.IsNullOrWhiteSpace(html) ||
+            string.IsNullOrWhiteSpace(chapterTitle))
+        {
+            return html;
+        }
+
+        var title =
+            System.Net.WebUtility.HtmlDecode(
+                chapterTitle).Trim();
+
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return html;
+        }
+
+        var normalizedTitle =
+            NormalizeChapterTitle(title);
+
+        // 1. Elsőként heading elemben keressük a fejezetcímet.
+        var headingPattern =
+            @"(?is)(?<open><h[1-6]\b[^>]*>)(?<text>.*?)(?<close></h[1-6]>)";
+
+        foreach (System.Text.RegularExpressions.Match match in
+                 System.Text.RegularExpressions.Regex.Matches(
+                     html,
+                     headingPattern))
+        {
+            var visibleText =
+                System.Text.RegularExpressions.Regex.Replace(
+                    match.Groups["text"].Value,
+                    @"<[^>]+>",
+                    string.Empty);
+
+            if (NormalizeChapterTitle(visibleText) ==
+                normalizedTitle)
+            {
+                var replacement =
+                    match.Groups["open"].Value +
+                    "<strong>" +
+                    match.Groups["text"].Value +
+                    "</strong>" +
+                    match.Groups["close"].Value;
+
+                return html.Remove(
+                        match.Index,
+                        match.Length)
+                    .Insert(
+                        match.Index,
+                        replacement);
+            }
+        }
+
+        // 2. A Játékmódosítókhoz hasonló EPUB-oknál a cím lehet
+        // p/div/section/article/header/span elemben is.
+        var elementPattern =
+            @"(?is)(?<open><(?:p|div|section|article|header|span)\b[^>]*>)" +
+            @"(?<text>.*?)" +
+            @"(?<close></(?:p|div|section|article|header|span)>)";
+
+        foreach (System.Text.RegularExpressions.Match match in
+                 System.Text.RegularExpressions.Regex.Matches(
+                     html,
+                     elementPattern))
+        {
+            var visibleText =
+                System.Text.RegularExpressions.Regex.Replace(
+                    match.Groups["text"].Value,
+                    @"<[^>]+>",
+                    string.Empty);
+
+            if (NormalizeChapterTitle(visibleText) ==
+                normalizedTitle)
+            {
+                var replacement =
+                    match.Groups["open"].Value +
+                    "<strong>" +
+                    match.Groups["text"].Value +
+                    "</strong>" +
+                    match.Groups["close"].Value;
+
+                return html.Remove(
+                        match.Index,
+                        match.Length)
+                    .Insert(
+                        match.Index,
+                        replacement);
+            }
+        }
+
+        // 3. Végső eset: sima szövegként szerepel a HTML-ben.
+        var plainIndex =
+            html.IndexOf(
+                title,
+                StringComparison.OrdinalIgnoreCase);
+
+        if (plainIndex >= 0)
+        {
+            return html.Insert(
+                    plainIndex + title.Length,
+                    "</strong>")
+                .Insert(
+                    plainIndex,
+                    "<strong>");
+        }
+
+        return html;
+    }
+
+    private static string NormalizeChapterTitle(
+        string value)
+    {
+        return System.Text.RegularExpressions.Regex.Replace(
+                System.Net.WebUtility.HtmlDecode(value),
+                @"\s+",
+                " ")
+            .Trim()
+            .ToLowerInvariant();
     }
 
 
@@ -2332,6 +2538,140 @@ public partial class MainWindow : Window
         }
 
         StartReadingPositionTracking();
+    }
+
+
+    // =========================================================
+    // EPUBON BELÜLI KATTINTHATÓ LINKEK
+    // =========================================================
+
+    private static string ConvertInternalEpubLinks(
+        string html,
+        string chapterPath)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return html;
+        }
+
+        if (string.IsNullOrWhiteSpace(chapterPath))
+        {
+            return html;
+        }
+
+        var chapterDirectory =
+            GetChapterDirectory(chapterPath);
+
+        var pattern =
+            @"(<a\b[^>]*?\bhref\s*=\s*[\""'])([^\""']+)([\""'])";
+
+        return Regex.Replace(
+            html,
+            pattern,
+            match =>
+            {
+                var href =
+                    match.Groups[2].Value.Trim();
+
+                if (string.IsNullOrWhiteSpace(href) ||
+                    href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                    href.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+                    href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) ||
+                    href.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                    href.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase))
+                {
+                    return match.Value;
+                }
+
+                // Ugyanazon XHTML-on belüli #fragment maradjon normál HTML-link.
+                if (href.StartsWith("#", StringComparison.Ordinal))
+                {
+                    return match.Value;
+                }
+
+                var fragment = string.Empty;
+                var fragmentIndex = href.IndexOf('#');
+
+                if (fragmentIndex >= 0)
+                {
+                    fragment =
+                        href[fragmentIndex..];
+
+                    href =
+                        href[..fragmentIndex];
+                }
+
+                var queryIndex = href.IndexOf('?');
+                if (queryIndex >= 0)
+                {
+                    href = href[..queryIndex];
+                }
+
+                if (string.IsNullOrWhiteSpace(href))
+                {
+                    return match.Value;
+                }
+
+                var targetPath =
+                    ResolveInternalEpubPath(
+                        chapterDirectory,
+                        href);
+
+                if (string.IsNullOrWhiteSpace(targetPath))
+                {
+                    return match.Value;
+                }
+
+                var encodedPath =
+                    Uri.EscapeDataString(targetPath);
+
+                return
+                    match.Groups[1].Value +
+                    $"bookforge://chapter/{encodedPath}{fragment}" +
+                    match.Groups[3].Value;
+            },
+            RegexOptions.IgnoreCase |
+            RegexOptions.Singleline);
+    }
+
+    private static string ResolveInternalEpubPath(
+        string baseDirectory,
+        string href)
+    {
+        href =
+            href
+                .Replace("\\", "/")
+                .Trim();
+
+        try
+        {
+            href =
+                Uri.UnescapeDataString(href);
+        }
+        catch
+        {
+        }
+
+        var combined =
+            string.IsNullOrWhiteSpace(baseDirectory)
+                ? href
+                : $"{baseDirectory.TrimEnd('/')}/{href.TrimStart('/')}";
+
+        return NormalizeChapterPath(combined);
+    }
+
+    private static string GetChapterDirectory(
+        string path)
+    {
+        var normalized =
+            NormalizeChapterPath(path);
+
+        var slash =
+            normalized.LastIndexOf('/');
+
+        return slash < 0
+            ? string.Empty
+            : normalized[..slash];
     }
 
 
