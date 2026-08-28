@@ -2986,12 +2986,21 @@ public partial class MainWindow : Window
 
     private async void ToggleBookmarkAtCurrentPosition()
     {
-        if (currentBook == null ||
-            currentChapter == null ||
-            contentViewer.CoreWebView2 == null)
+        var book = currentBook;
+        var chapter = currentChapter;
+        var viewer = contentViewer;
+
+        if (book == null ||
+            chapter == null ||
+            viewer == null ||
+            viewer.CoreWebView2 == null)
         {
             return;
         }
+
+        var bookmarks =
+            book.Bookmarks ??
+            new List<Bookmark>();
 
         try
         {
@@ -3010,7 +3019,7 @@ public partial class MainWindow : Window
                 ExtractScrollY(result);
 
             var chapterPath =
-                GetChapterPath(currentChapter);
+                GetChapterPath(chapter);
 
             if (string.IsNullOrWhiteSpace(chapterPath))
             {
@@ -3018,7 +3027,7 @@ public partial class MainWindow : Window
             }
 
             var existing =
-                currentBook.Bookmarks?
+                bookmarks
                     .FirstOrDefault(
                         bookmark =>
                             string.Equals(
@@ -3033,10 +3042,13 @@ public partial class MainWindow : Window
 
             if (existing != null)
             {
-                currentBook.Bookmarks.Remove(existing);
+                bookmarks.Remove(existing);
+                book.Bookmarks = bookmarks;
+
                 library.UpdateBookmarks(
-                    currentBook,
-                    currentBook.Bookmarks);
+                    book,
+                    bookmarks);
+
                 RefreshBookmarkList();
 
                 MessageBox.Show(
@@ -3049,12 +3061,12 @@ public partial class MainWindow : Window
             }
 
             var bookmarkNumber =
-                currentBook.Bookmarks.Count + 1;
+                bookmarks.Count + 1;
 
             var title =
-                string.IsNullOrWhiteSpace(currentChapter.Title)
+                string.IsNullOrWhiteSpace(chapter.Title)
                     ? $"{bookmarkNumber}. könyvjelző"
-                    : $"{bookmarkNumber}. könyvjelző — {currentChapter.Title}";
+                    : $"{bookmarkNumber}. könyvjelző — {chapter.Title}";
 
             var bookmark =
                 new Bookmark
@@ -3065,16 +3077,17 @@ public partial class MainWindow : Window
                     CreatedDate = DateTime.Now
                 };
 
-            currentBook.Bookmarks.Add(bookmark);
+            bookmarks.Add(bookmark);
+            book.Bookmarks = bookmarks;
 
             library.UpdateBookmarks(
-                currentBook,
-                currentBook.Bookmarks);
+                book,
+                bookmarks);
 
             RefreshBookmarkList();
 
             MessageBox.Show(
-                "Könyvjelző elmentve.",
+                "Könyvjelző hozzáadva.",
                 "BookForge",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
