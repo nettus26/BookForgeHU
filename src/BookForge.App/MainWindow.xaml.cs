@@ -1596,6 +1596,15 @@ public partial class MainWindow : Window
 
         if (chapter == null)
         {
+            // Egyes EPUB-okban a Tartalomjegyzék (toc.xhtml,
+            // nav.xhtml, contents.xhtml stb.) nem szerepel a
+            // feldolgozott Chapter listában. Ilyenkor a link eddig
+            // látszólag nem csinált semmit.
+            if (IsTableOfContentsPath(normalizedTarget))
+            {
+                ShowGeneratedTableOfContents();
+            }
+
             return;
         }
 
@@ -1610,6 +1619,99 @@ public partial class MainWindow : Window
 
         ShowChapter(
             chapter);
+    }
+
+
+    // =========================================================
+    // EPUB TARTALOMJEGYZÉK FELISMERÉSE
+    // =========================================================
+
+    private static bool IsTableOfContentsPath(
+        string path)
+    {
+        var fileName =
+            Path.GetFileName(
+                path.Replace('\\', '/'));
+
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        var name =
+            Path.GetFileNameWithoutExtension(
+                fileName)
+                .ToLowerInvariant();
+
+        return
+            name == "toc" ||
+            name == "nav" ||
+            name == "contents" ||
+            name == "content" ||
+            name == "tableofcontents" ||
+            name.Contains("toc") ||
+            name.Contains("contents");
+    }
+
+
+    // =========================================================
+    // GENERÁLT TARTALOMJEGYZÉK MEGJELENÍTÉSE
+    // =========================================================
+
+    private void ShowGeneratedTableOfContents()
+    {
+        if (currentBook == null)
+        {
+            return;
+        }
+
+        var html =
+            new System.Text.StringBuilder();
+
+        html.Append(
+            "<h1>Tartalomjegyzék</h1>");
+
+        foreach (var chapter in
+                 currentBook.Chapters
+                    .Where(c =>
+                        c != null &&
+                        !string.IsNullOrWhiteSpace(c.Title) &&
+                        !string.Equals(
+                            c.Title.Trim(),
+                            "Cover",
+                            StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(c => c.Order))
+        {
+            var path =
+                !string.IsNullOrWhiteSpace(
+                    chapter.FilePath)
+                    ? chapter.FilePath
+                    : chapter.Href;
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                continue;
+            }
+
+            var encodedPath =
+                Uri.EscapeDataString(
+                    NormalizeChapterPath(path));
+
+            var title =
+                System.Net.WebUtility.HtmlEncode(
+                    chapter.Title.Trim());
+
+            html.Append(
+                "<p><a href=\"bookforge://chapter/" +
+                encodedPath +
+                "\"><strong>" +
+                title +
+                "</strong></a></p>");
+        }
+
+        contentViewer.NavigateToString(
+            CreateReaderHtml(
+                html.ToString()));
     }
 
 
@@ -2549,12 +2651,8 @@ public partial class MainWindow : Window
         string html,
         string chapterPath)
     {
-        if (string.IsNullOrWhiteSpace(html))
-        {
-            return html;
-        }
-
-        if (string.IsNullOrWhiteSpace(chapterPath))
+        if (string.IsNullOrWhiteSpace(html) ||
+            string.IsNullOrWhiteSpace(chapterPath))
         {
             return html;
         }
@@ -2563,7 +2661,7 @@ public partial class MainWindow : Window
             GetChapterDirectory(chapterPath);
 
         var pattern =
-            @"(<a\b[^>]*?\bhref\s*=\s*[\""'])([^\""']+)([\""'])";
+            @"(<a\b[^>]*?\bhref\s*=\s*[""'])([^""']+)([""'][^>]*>)(.*?)(</a>)";
 
         return Regex.Replace(
             html,
@@ -2572,6 +2670,38 @@ public partial class MainWindow : Window
             {
                 var href =
                     match.Groups[2].Value.Trim();
+
+                var anchorText =
+                    Regex.Replace(
+                        match.Groups[4].Value,
+                        @"<[^>]+>",
+                        string.Empty)
+                    .Trim();
+
+                var normalizedAnchorText =
+                    Regex.Replace(
+                        System.Net.WebUtility.HtmlDecode(anchorText),
+                        @"\s+",
+                        " ")
+                    .Trim()
+                    .ToLowerInvariant();
+
+                // A könyv saját szövegében lévő "Tartalomjegyzék" linket
+                // ne az EPUB fájljára bízzuk. A WebView2 NavigateToString
+                // miatt az ilyen speciális EPUB-linkek egyes könyveknél
+                // üres oldalt eredményezhetnek. A BookForge saját TOC-ját
+                // nyitjuk meg helyette.
+                if (normalizedAnchorText == "tartalomjegyzék" ||
+                    normalizedAnchorText == "table of contents" ||
+                    normalizedAnchorText == "contents")
+                {
+                    return
+                        match.Groups[1].Value +
+                        "bookforge://toc" +
+                        match.Groups[3].Value +
+                        match.Groups[4].Value +
+                        match.Groups[5].Value;
+                }
 
                 if (string.IsNullOrWhiteSpace(href) ||
                     href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -2583,14 +2713,28 @@ public partial class MainWindow : Window
                     return match.Value;
                 }
 
-                // Ugyanazon XHTML-on belüli #fragment maradjon normál HTML-link.
+                var fragment =
+                    string.Empty;
+
                 if (href.StartsWith("#", StringComparison.Ordinal))
                 {
-                    return match.Value;
+                    var samePageFragment =
+                        href[1..];
+
+                    var encodedCurrentPath =
+                        Uri.EscapeDataString(
+                            NormalizeChapterPath(chapterPath));
+
+                    return
+                        match.Groups[1].Value +
+                        $"bookforge://chapter/{encodedCurrentPath}#{samePageFragment}" +
+                        match.Groups[3].Value +
+                        match.Groups[4].Value +
+                        match.Groups[5].Value;
                 }
 
-                var fragment = string.Empty;
-                var fragmentIndex = href.IndexOf('#');
+                var fragmentIndex =
+                    href.IndexOf('#');
 
                 if (fragmentIndex >= 0)
                 {
@@ -2601,10 +2745,13 @@ public partial class MainWindow : Window
                         href[..fragmentIndex];
                 }
 
-                var queryIndex = href.IndexOf('?');
+                var queryIndex =
+                    href.IndexOf('?');
+
                 if (queryIndex >= 0)
                 {
-                    href = href[..queryIndex];
+                    href =
+                        href[..queryIndex];
                 }
 
                 if (string.IsNullOrWhiteSpace(href))
@@ -2628,11 +2775,14 @@ public partial class MainWindow : Window
                 return
                     match.Groups[1].Value +
                     $"bookforge://chapter/{encodedPath}{fragment}" +
-                    match.Groups[3].Value;
+                    match.Groups[3].Value +
+                    match.Groups[4].Value +
+                    match.Groups[5].Value;
             },
             RegexOptions.IgnoreCase |
             RegexOptions.Singleline);
     }
+
 
     private static string ResolveInternalEpubPath(
         string baseDirectory,
@@ -2686,6 +2836,30 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(
             e.Uri))
         {
+            return;
+        }
+
+        const string tocPrefix =
+            "bookforge://toc";
+
+        if (e.Uri.Equals(
+            tocPrefix,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            e.Cancel = true;
+
+            try
+            {
+                SaveReadingPosition();
+                ShowGeneratedTableOfContents();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    ex.ToString(),
+                    "Tartalomjegyzék hiba");
+            }
+
             return;
         }
 
@@ -2758,6 +2932,17 @@ public partial class MainWindow : Window
             NormalizeChapterPath(
                 chapterPath);
 
+        // A könyv saját EPUB-tartalomjegyzéke gyakran külön XHTML
+        // fájlban van (pl. toc.xhtml, nav.xhtml vagy contents.xhtml),
+        // ezért az nem feltétlenül szerepel a Chapter listában.
+        // Ilyenkor közvetlenül a BookForge saját, kattintható
+        // tartalomjegyzékét kell megjeleníteni.
+        if (IsTableOfContentsPath(normalizedTarget))
+        {
+            ShowGeneratedTableOfContents();
+            return;
+        }
+
         var chapter =
             book.Chapters.FirstOrDefault(
                 c =>
@@ -2776,6 +2961,13 @@ public partial class MainWindow : Window
                     string.Equals(
                         Path.GetFileName(
                             c.FilePath),
+                        Path.GetFileName(
+                            normalizedTarget),
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        Path.GetFileName(
+                            c.Href),
                         Path.GetFileName(
                             normalizedTarget),
                         StringComparison.OrdinalIgnoreCase));
