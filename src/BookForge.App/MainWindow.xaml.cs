@@ -116,6 +116,8 @@ public partial class MainWindow : Window
 
     private string? pendingFragment;
 
+    private double? pendingBookmarkScrollPosition;
+
 
     // =========================================================
     // OLVASÓ BEÁLLÍTÁSOK
@@ -144,6 +146,14 @@ public partial class MainWindow : Window
 
     private bool restoringReaderSettings = false;
 
+    // =========================================================
+    // KÖNYVJELZŐK
+    // =========================================================
+
+    private System.Windows.Controls.ListView? bookmarkList;
+
+    private System.Windows.Controls.TabItem? bookmarkTab;
+
 
     // =========================================================
     // KONSTRUKTOR
@@ -152,6 +162,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
 
         UpdateFontSizeDisplay();
 
@@ -208,6 +220,8 @@ public partial class MainWindow : Window
     {
         try
         {
+            SetupBookmarkUi();
+
             await contentViewer.EnsureCoreWebView2Async();
 
             contentViewer.NavigateToString(
@@ -521,6 +535,9 @@ public partial class MainWindow : Window
 
                     fullBook.LastScrollPosition =
                         savedBook.LastScrollPosition;
+
+                    fullBook.Bookmarks =
+                        savedBook.Bookmarks ?? new List<Bookmark>();
 
                     // Az EPUB újratöltésekor a fejezetek új példányok lesznek,
                     // ezért a mentett olvasottsági állapotokat külön vissza kell másolni.
@@ -1203,6 +1220,9 @@ public partial class MainWindow : Window
         LoadChapterList(
             book);
 
+        book.Bookmarks ??= new List<Bookmark>();
+        RefreshBookmarkList();
+
         // Ha van mentett hely, azt állítjuk vissza.
         if (!string.IsNullOrWhiteSpace(
             book.LastChapterPath))
@@ -1596,15 +1616,6 @@ public partial class MainWindow : Window
 
         if (chapter == null)
         {
-            // Egyes EPUB-okban a Tartalomjegyzék (toc.xhtml,
-            // nav.xhtml, contents.xhtml stb.) nem szerepel a
-            // feldolgozott Chapter listában. Ilyenkor a link eddig
-            // látszólag nem csinált semmit.
-            if (IsTableOfContentsPath(normalizedTarget))
-            {
-                ShowGeneratedTableOfContents();
-            }
-
             return;
         }
 
@@ -1619,99 +1630,6 @@ public partial class MainWindow : Window
 
         ShowChapter(
             chapter);
-    }
-
-
-    // =========================================================
-    // EPUB TARTALOMJEGYZÉK FELISMERÉSE
-    // =========================================================
-
-    private static bool IsTableOfContentsPath(
-        string path)
-    {
-        var fileName =
-            Path.GetFileName(
-                path.Replace('\\', '/'));
-
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            return false;
-        }
-
-        var name =
-            Path.GetFileNameWithoutExtension(
-                fileName)
-                .ToLowerInvariant();
-
-        return
-            name == "toc" ||
-            name == "nav" ||
-            name == "contents" ||
-            name == "content" ||
-            name == "tableofcontents" ||
-            name.Contains("toc") ||
-            name.Contains("contents");
-    }
-
-
-    // =========================================================
-    // GENERÁLT TARTALOMJEGYZÉK MEGJELENÍTÉSE
-    // =========================================================
-
-    private void ShowGeneratedTableOfContents()
-    {
-        if (currentBook == null)
-        {
-            return;
-        }
-
-        var html =
-            new System.Text.StringBuilder();
-
-        html.Append(
-            "<h1>Tartalomjegyzék</h1>");
-
-        foreach (var chapter in
-                 currentBook.Chapters
-                    .Where(c =>
-                        c != null &&
-                        !string.IsNullOrWhiteSpace(c.Title) &&
-                        !string.Equals(
-                            c.Title.Trim(),
-                            "Cover",
-                            StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(c => c.Order))
-        {
-            var path =
-                !string.IsNullOrWhiteSpace(
-                    chapter.FilePath)
-                    ? chapter.FilePath
-                    : chapter.Href;
-
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-
-            var encodedPath =
-                Uri.EscapeDataString(
-                    NormalizeChapterPath(path));
-
-            var title =
-                System.Net.WebUtility.HtmlEncode(
-                    chapter.Title.Trim());
-
-            html.Append(
-                "<p><a href=\"bookforge://chapter/" +
-                encodedPath +
-                "\"><strong>" +
-                title +
-                "</strong></a></p>");
-        }
-
-        contentViewer.NavigateToString(
-            CreateReaderHtml(
-                html.ToString()));
     }
 
 
@@ -2632,6 +2550,43 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (pendingBookmarkScrollPosition.HasValue)
+        {
+            var position =
+                pendingBookmarkScrollPosition.Value;
+
+            pendingBookmarkScrollPosition = null;
+
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(100);
+
+                var positionText =
+                    position.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture);
+
+                var script =
+                    "(function(){var y=" + positionText + ";" +
+                    "window.scrollTo(0,y);" +
+                    "if(document.documentElement)document.documentElement.scrollTop=y;" +
+                    "if(document.body)document.body.scrollTop=y;" +
+                    "requestAnimationFrame(function(){window.scrollTo(0,y);" +
+                    "if(document.documentElement)document.documentElement.scrollTop=y;" +
+                    "if(document.body)document.body.scrollTop=y;});})();";
+
+                await contentViewer.ExecuteScriptAsync(script);
+                restoringReadingPosition = false;
+                StartReadingPositionTracking();
+            }
+            catch
+            {
+                restoringReadingPosition = false;
+                StartReadingPositionTracking();
+            }
+
+            return;
+        }
+
         if (restoringReadingPosition)
         {
             await ApplySavedScrollPosition();
@@ -2651,8 +2606,12 @@ public partial class MainWindow : Window
         string html,
         string chapterPath)
     {
-        if (string.IsNullOrWhiteSpace(html) ||
-            string.IsNullOrWhiteSpace(chapterPath))
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return html;
+        }
+
+        if (string.IsNullOrWhiteSpace(chapterPath))
         {
             return html;
         }
@@ -2661,7 +2620,7 @@ public partial class MainWindow : Window
             GetChapterDirectory(chapterPath);
 
         var pattern =
-            @"(<a\b[^>]*?\bhref\s*=\s*[""'])([^""']+)([""'][^>]*>)(.*?)(</a>)";
+            @"(<a\b[^>]*?\bhref\s*=\s*[\""'])([^\""']+)([\""'])";
 
         return Regex.Replace(
             html,
@@ -2670,38 +2629,6 @@ public partial class MainWindow : Window
             {
                 var href =
                     match.Groups[2].Value.Trim();
-
-                var anchorText =
-                    Regex.Replace(
-                        match.Groups[4].Value,
-                        @"<[^>]+>",
-                        string.Empty)
-                    .Trim();
-
-                var normalizedAnchorText =
-                    Regex.Replace(
-                        System.Net.WebUtility.HtmlDecode(anchorText),
-                        @"\s+",
-                        " ")
-                    .Trim()
-                    .ToLowerInvariant();
-
-                // A könyv saját szövegében lévő "Tartalomjegyzék" linket
-                // ne az EPUB fájljára bízzuk. A WebView2 NavigateToString
-                // miatt az ilyen speciális EPUB-linkek egyes könyveknél
-                // üres oldalt eredményezhetnek. A BookForge saját TOC-ját
-                // nyitjuk meg helyette.
-                if (normalizedAnchorText == "tartalomjegyzék" ||
-                    normalizedAnchorText == "table of contents" ||
-                    normalizedAnchorText == "contents")
-                {
-                    return
-                        match.Groups[1].Value +
-                        "bookforge://toc" +
-                        match.Groups[3].Value +
-                        match.Groups[4].Value +
-                        match.Groups[5].Value;
-                }
 
                 if (string.IsNullOrWhiteSpace(href) ||
                     href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -2713,28 +2640,14 @@ public partial class MainWindow : Window
                     return match.Value;
                 }
 
-                var fragment =
-                    string.Empty;
-
+                // Ugyanazon XHTML-on belüli #fragment maradjon normál HTML-link.
                 if (href.StartsWith("#", StringComparison.Ordinal))
                 {
-                    var samePageFragment =
-                        href[1..];
-
-                    var encodedCurrentPath =
-                        Uri.EscapeDataString(
-                            NormalizeChapterPath(chapterPath));
-
-                    return
-                        match.Groups[1].Value +
-                        $"bookforge://chapter/{encodedCurrentPath}#{samePageFragment}" +
-                        match.Groups[3].Value +
-                        match.Groups[4].Value +
-                        match.Groups[5].Value;
+                    return match.Value;
                 }
 
-                var fragmentIndex =
-                    href.IndexOf('#');
+                var fragment = string.Empty;
+                var fragmentIndex = href.IndexOf('#');
 
                 if (fragmentIndex >= 0)
                 {
@@ -2745,13 +2658,10 @@ public partial class MainWindow : Window
                         href[..fragmentIndex];
                 }
 
-                var queryIndex =
-                    href.IndexOf('?');
-
+                var queryIndex = href.IndexOf('?');
                 if (queryIndex >= 0)
                 {
-                    href =
-                        href[..queryIndex];
+                    href = href[..queryIndex];
                 }
 
                 if (string.IsNullOrWhiteSpace(href))
@@ -2775,14 +2685,11 @@ public partial class MainWindow : Window
                 return
                     match.Groups[1].Value +
                     $"bookforge://chapter/{encodedPath}{fragment}" +
-                    match.Groups[3].Value +
-                    match.Groups[4].Value +
-                    match.Groups[5].Value;
+                    match.Groups[3].Value;
             },
             RegexOptions.IgnoreCase |
             RegexOptions.Singleline);
     }
-
 
     private static string ResolveInternalEpubPath(
         string baseDirectory,
@@ -2836,30 +2743,6 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(
             e.Uri))
         {
-            return;
-        }
-
-        const string tocPrefix =
-            "bookforge://toc";
-
-        if (e.Uri.Equals(
-            tocPrefix,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            e.Cancel = true;
-
-            try
-            {
-                SaveReadingPosition();
-                ShowGeneratedTableOfContents();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    ex.ToString(),
-                    "Tartalomjegyzék hiba");
-            }
-
             return;
         }
 
@@ -2932,17 +2815,6 @@ public partial class MainWindow : Window
             NormalizeChapterPath(
                 chapterPath);
 
-        // A könyv saját EPUB-tartalomjegyzéke gyakran külön XHTML
-        // fájlban van (pl. toc.xhtml, nav.xhtml vagy contents.xhtml),
-        // ezért az nem feltétlenül szerepel a Chapter listában.
-        // Ilyenkor közvetlenül a BookForge saját, kattintható
-        // tartalomjegyzékét kell megjeleníteni.
-        if (IsTableOfContentsPath(normalizedTarget))
-        {
-            ShowGeneratedTableOfContents();
-            return;
-        }
-
         var chapter =
             book.Chapters.FirstOrDefault(
                 c =>
@@ -2961,13 +2833,6 @@ public partial class MainWindow : Window
                     string.Equals(
                         Path.GetFileName(
                             c.FilePath),
-                        Path.GetFileName(
-                            normalizedTarget),
-                        StringComparison.OrdinalIgnoreCase)
-                    ||
-                    string.Equals(
-                        Path.GetFileName(
-                            c.Href),
                         Path.GetFileName(
                             normalizedTarget),
                         StringComparison.OrdinalIgnoreCase));
@@ -2990,6 +2855,356 @@ public partial class MainWindow : Window
             chapter);
     }
 
+
+    // =========================================================
+    // KÖNYVJELZŐK FELÜLETE
+    // =========================================================
+
+    private void SetupBookmarkUi()
+    {
+        if (bookmarkTab != null)
+        {
+            return;
+        }
+
+        try
+        {
+            var tabControls =
+                FindVisualChildren<System.Windows.Controls.TabControl>(this)
+                    .ToList();
+
+            var navigationTabs =
+                tabControls.FirstOrDefault(
+                    tab => tab.Items
+                        .OfType<System.Windows.Controls.TabItem>()
+                        .Any(item =>
+                            string.Equals(
+                                item.Header?.ToString(),
+                                "📑 Tartalomjegyzék",
+                                StringComparison.Ordinal)));
+
+            if (navigationTabs == null)
+            {
+                return;
+            }
+
+            bookmarkList =
+                new System.Windows.Controls.ListView();
+
+            bookmarkList.SelectionChanged +=
+                BookmarkList_SelectionChanged;
+
+            var template =
+                new System.Windows.DataTemplate();
+
+            var factory =
+                new FrameworkElementFactory(
+                    typeof(System.Windows.Controls.TextBlock));
+
+            factory.SetBinding(
+                System.Windows.Controls.TextBlock.TextProperty,
+                new Binding(nameof(Bookmark.Title)));
+
+            factory.SetValue(
+                System.Windows.Controls.TextBlock.MarginProperty,
+                new Thickness(5));
+
+            template.VisualTree = factory;
+            bookmarkList.ItemTemplate = template;
+
+            bookmarkTab =
+                new System.Windows.Controls.TabItem
+                {
+                    Header = "🔖 Könyvjelzők",
+                    Content = bookmarkList
+                };
+
+            navigationTabs.Items.Add(bookmarkTab);
+        }
+        catch
+        {
+            // A könyvjelző felület hibája ne akadályozza
+            // az olvasó indulását.
+        }
+    }
+
+    private static IEnumerable<T>
+        FindVisualChildren<T>(DependencyObject dependencyObject)
+        where T : DependencyObject
+    {
+        if (dependencyObject == null)
+        {
+            yield break;
+        }
+
+        for (var i = 0;
+             i < VisualTreeHelper.GetChildrenCount(dependencyObject);
+             i++)
+        {
+            var child =
+                VisualTreeHelper.GetChild(
+                    dependencyObject,
+                    i);
+
+            if (child is T typedChild)
+            {
+                yield return typedChild;
+            }
+
+            foreach (var descendant in
+                     FindVisualChildren<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private void AddBookmarkButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        ToggleBookmarkAtCurrentPosition();
+    }
+
+
+    // =========================================================
+    // KÖNYVJELZŐ BILLENTYŰPARANCS
+    // =========================================================
+
+    private void MainWindow_PreviewKeyDown(
+        object sender,
+        System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.B &&
+            (System.Windows.Input.Keyboard.Modifiers &
+             System.Windows.Input.ModifierKeys.Control) != 0)
+        {
+            e.Handled = true;
+            ToggleBookmarkAtCurrentPosition();
+        }
+    }
+
+    private async void ToggleBookmarkAtCurrentPosition()
+    {
+        if (currentBook == null ||
+            currentChapter == null ||
+            contentViewer.CoreWebView2 == null)
+        {
+            return;
+        }
+
+        try
+        {
+            var script =
+                "JSON.stringify({scrollY: Math.max(" +
+                "window.scrollY || 0," +
+                "document.documentElement.scrollTop || 0," +
+                "document.body ? document.body.scrollTop || 0 : 0" +
+                ")})";
+
+            var result =
+                await contentViewer.ExecuteScriptAsync(
+                    script);
+
+            var scrollPosition =
+                ExtractScrollY(result);
+
+            var chapterPath =
+                GetChapterPath(currentChapter);
+
+            if (string.IsNullOrWhiteSpace(chapterPath))
+            {
+                return;
+            }
+
+            var existing =
+                currentBook.Bookmarks?
+                    .FirstOrDefault(
+                        bookmark =>
+                            string.Equals(
+                                NormalizeChapterPath(
+                                    bookmark.ChapterPath),
+                                NormalizeChapterPath(
+                                    chapterPath),
+                                StringComparison.OrdinalIgnoreCase)
+                            && Math.Abs(
+                                bookmark.ScrollPosition -
+                                scrollPosition) < 80);
+
+            if (existing != null)
+            {
+                currentBook.Bookmarks.Remove(existing);
+                library.UpdateBookmarks(
+                    currentBook,
+                    currentBook.Bookmarks);
+                RefreshBookmarkList();
+
+                MessageBox.Show(
+                    "A könyvjelző törölve.",
+                    "BookForge",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+
+                return;
+            }
+
+            var bookmarkNumber =
+                currentBook.Bookmarks.Count + 1;
+
+            var title =
+                string.IsNullOrWhiteSpace(currentChapter.Title)
+                    ? $"{bookmarkNumber}. könyvjelző"
+                    : $"{bookmarkNumber}. könyvjelző — {currentChapter.Title}";
+
+            var bookmark =
+                new Bookmark
+                {
+                    ChapterPath = chapterPath,
+                    ScrollPosition = scrollPosition,
+                    Title = title,
+                    CreatedDate = DateTime.Now
+                };
+
+            currentBook.Bookmarks.Add(bookmark);
+
+            library.UpdateBookmarks(
+                currentBook,
+                currentBook.Bookmarks);
+
+            RefreshBookmarkList();
+
+            MessageBox.Show(
+                "Könyvjelző elmentve.",
+                "BookForge",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                "Könyvjelző hiba",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private static double ExtractScrollY(string json)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return 0;
+            }
+
+            var cleaned =
+                json.Trim('"')
+                    .Replace("\\\"", "\"");
+
+            using var document =
+                System.Text.Json.JsonDocument.Parse(
+                    cleaned);
+
+            if (document.RootElement.TryGetProperty(
+                    "scrollY",
+                    out var scrollYElement))
+            {
+                return scrollYElement.GetDouble();
+            }
+        }
+        catch
+        {
+        }
+
+        return 0;
+    }
+
+    private void RefreshBookmarkList()
+    {
+        if (bookmarkList == null)
+        {
+            return;
+        }
+
+        bookmarkList.ItemsSource = null;
+        bookmarkList.Items.Clear();
+
+        if (currentBook?.Bookmarks == null)
+        {
+            return;
+        }
+
+        foreach (var bookmark in
+                 currentBook.Bookmarks
+                     .OrderBy(b => b.CreatedDate))
+        {
+            bookmarkList.Items.Add(bookmark);
+        }
+    }
+
+    private void BookmarkList_SelectionChanged(
+        object sender,
+        System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (bookmarkList?.SelectedItem is Bookmark bookmark)
+        {
+            NavigateToBookmark(bookmark);
+        }
+    }
+
+    private void NavigateToBookmark(
+        Bookmark bookmark)
+    {
+        if (currentBook == null ||
+            bookmark == null)
+        {
+            return;
+        }
+
+        var targetPath =
+            NormalizeChapterPath(
+                bookmark.ChapterPath);
+
+        var chapter =
+            currentBook.Chapters.FirstOrDefault(
+                c =>
+                    string.Equals(
+                        NormalizeChapterPath(c.FilePath),
+                        targetPath,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        NormalizeChapterPath(c.Href),
+                        targetPath,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        Path.GetFileName(c.FilePath),
+                        Path.GetFileName(targetPath),
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (chapter == null)
+        {
+            return;
+        }
+
+        ChapterList.SelectedItem = chapter;
+        ChapterList.ScrollIntoView(chapter);
+
+        currentBook.LastChapterPath =
+            GetChapterPath(chapter);
+
+        currentBook.LastScrollPosition =
+            bookmark.ScrollPosition;
+
+        currentChapter = chapter;
+        pendingBookmarkScrollPosition =
+            bookmark.ScrollPosition;
+        restoringReadingPosition = true;
+
+        ShowChapter(chapter);
+    }
 
     // =========================================================
     // PROGRAM BEZÁRÁSA
